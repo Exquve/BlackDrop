@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlackDrop - Dosya Paylaşımı</title>
+    <link rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%238b5cf6'%3E%3Cpath d='M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z'/%3E%3C/svg%3E">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: rgba(26, 26, 37, 0.8);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent: #8b5cf6;
+            --accent-hover: #7c3aed;
+            --danger: #ef4444;
+            --success: #10b981;
+            --border: rgba(148, 163, 184, 0.1);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(139, 92, 246, 0.15), transparent),
+                radial-gradient(ellipse 60% 40% at 100% 100%, rgba(99, 102, 241, 0.1), transparent);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .share-container {
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 1.5rem;
+            padding: 2rem;
+            max-width: 450px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: var(--text-primary);
+        }
+
+        .brand svg {
+            width: 36px;
+            height: 36px;
+        }
+
+        .file-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 1.5rem;
+            color: var(--accent);
+        }
+
+        .file-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            word-break: break-all;
+        }
+
+        .file-meta {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .password-form {
+            margin-bottom: 1.5rem;
+        }
+
+        .password-form input {
+            width: 100%;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            outline: none;
+            margin-bottom: 1rem;
+            transition: all 0.2s;
+        }
+
+        .password-form input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            width: 100%;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #6366f1);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: var(--danger);
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+        }
+
+        .expired-message {
+            color: var(--danger);
+        }
+
+        .upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: 1rem;
+            padding: 2rem;
+            margin-bottom: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .upload-zone:hover,
+        .upload-zone.dragover {
+            border-color: var(--accent);
+            background: rgba(139, 92, 246, 0.05);
+        }
+
+        .upload-zone svg {
+            width: 48px;
+            height: 48px;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .upload-zone p {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: var(--bg-secondary);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 1rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), #6366f1);
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .upload-list {
+            text-align: left;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 1rem;
+        }
+
+        .upload-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            background: var(--bg-secondary);
+            border-radius: 0.5rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.8rem;
+        }
+
+        .upload-item .status {
+            margin-left: auto;
+        }
+
+        .upload-item .status.success {
+            color: var(--success);
+        }
+
+        .upload-item .status.error {
+            color: var(--danger);
+        }
+
+        @media (max-width: 480px) {
+            .share-container {
+                padding: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="share-container">
+        <div class="brand">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+                <defs>
+                    <linearGradient id="brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#8b5cf6" />
+                        <stop offset="100%" style="stop-color:#6366f1" />
+                    </linearGradient>
+                </defs>
+                <path fill="url(#brandGradient)"
+                    d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" />
+            </svg>
+            BlackDrop
+        </div>
+
+        <div id="content">
+            <!-- Content will be injected by JavaScript -->
+            <p style="color: var(--text-secondary);">Yükleniyor...</p>
+        </div>
+    </div>
+
+    <script>
+        const shareId = window.location.pathname.split('/').pop();
+        let shareData = null;
+
+        async function init() {
+            try {
+                const res = await fetch(`/api/share/${shareId}/info`);
+                if (!res.ok) {
+                    const err = await res.json();
+                    showError(err.error || 'Bu paylaşım bulunamadı veya süresi dolmuş.');
+                    return;
+                }
+
+                shareData = await res.json();
+
+                if (shareData.requiresPassword) {
+                    showPasswordForm();
+                } else if (shareData.uploadOnly) {
+                    showUploadForm();
+                } else {
+                    showDownload();
+                }
+            } catch (e) {
+                showError('Bir hata oluştu. Lütfen tekrar deneyin.');
+            }
+        }
+
+        function showError(message) {
+            document.getElementById('content').innerHTML = `
+                <div class="file-icon expired-message">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                    </svg>
+                </div>
+                <p class="expired-message">${message}</p>
+            `;
+        }
+
+        function showPasswordForm() {
+            document.getElementById('content').innerHTML = `
+                <div class="file-icon">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                    </svg>
+                </div>
+                <h2 class="file-name">Şifre Korumalı</h2>
+                <p class="file-meta">Bu dosyaya erişmek için şifre gerekli</p>
+                <div class="password-form">
+                    <div id="passwordError" class="error-message" style="display: none;"></div>
+                    <input type="password" id="passwordInput" placeholder="Şifre girin" onkeydown="if(event.key==='Enter')verifyPassword()">
+                    <button class="btn btn-primary" onclick="verifyPassword()">
+                        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/>
+                        </svg>
+                        Devam Et
+                    </button>
+                </div>
+            `;
+            document.getElementById('passwordInput').focus();
+        }
+
+        async function verifyPassword() {
+            const password = document.getElementById('passwordInput').value;
+            const errorEl = document.getElementById('passwordError');
+
+            try {
+                const res = await fetch(`/api/share/${shareId}/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    shareData = { ...shareData, ...data };
+                    
+                    if (shareData.uploadOnly) {
+                        showUploadForm();
+                    } else {
+                        showDownload();
+                    }
+                } else {
+                    errorEl.textContent = 'Yanlış şifre';
+                    errorEl.style.display = 'block';
+                }
+            } catch (e) {
+                errorEl.textContent = 'Bir hata oluştu';
+                errorEl.style.display = 'block';
+            }
+        }
+
+        function showDownload() {
+            const ext = shareData.fileName.split('.').pop().toUpperCase();
+            document.getElementById('content').innerHTML = `
+                <div class="file-icon">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                            d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                    </svg>
+                </div>
+                <h2 class="file-name">${shareData.fileName}</h2>
+                <p class="file-meta">${formatSize(shareData.fileSize)} • ${ext}</p>
+                <button class="btn btn-success" onclick="downloadFile()">
+                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                    </svg>
+                    İndir
+                </button>
+                ${shareData.downloadInfo ? `<p class="file-meta" style="margin-top: 1rem;">${shareData.downloadInfo}</p>` : ''}
+            `;
+        }
+
+        function downloadFile() {
+            const password = document.getElementById('passwordInput')?.value || '';
+            window.location.href = `/api/share/${shareId}/download${password ? '?password=' + encodeURIComponent(password) : ''}`;
+        }
+
+        function showUploadForm() {
+            document.getElementById('content').innerHTML = `
+                <div class="file-icon">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                </div>
+                <h2 class="file-name">Dosya Yükle</h2>
+                <p class="file-meta">${shareData.folderName} klasörüne</p>
+                <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                    </svg>
+                    <p>Dosyaları sürükleyin veya tıklayın</p>
+                </div>
+                <input type="file" id="fileInput" multiple style="display: none;" onchange="handleFiles(this.files)">
+                <div class="progress-bar" id="progressBar" style="display: none;">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="upload-list" id="uploadList"></div>
+            `;
+
+            const zone = document.getElementById('uploadZone');
+            zone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                zone.classList.add('dragover');
+            });
+            zone.addEventListener('dragleave', () => {
+                zone.classList.remove('dragover');
+            });
+            zone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                zone.classList.remove('dragover');
+                handleFiles(e.dataTransfer.files);
+            });
+        }
+
+        async function handleFiles(files) {
+            const list = document.getElementById('uploadList');
+            const progressBar = document.getElementById('progressBar');
+            const progressFill = document.getElementById('progressFill');
+
+            for (const file of files) {
+                const item = document.createElement('div');
+                item.className = 'upload-item';
+                item.innerHTML = `
+                    <span>${file.name}</span>
+                    <span class="status">Yükleniyor...</span>
+                `;
+                list.appendChild(item);
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    progressBar.style.display = 'block';
+                    
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', `/api/share/${shareId}/upload`);
+                    
+                    xhr.upload.onprogress = (e) => {
+                        if (e.lengthComputable) {
+                            const percent = (e.loaded / e.total) * 100;
+                            progressFill.style.width = percent + '%';
+                        }
+                    };
+
+                    xhr.onload = () => {
+                        if (xhr.status === 200) {
+                            item.querySelector('.status').textContent = '✓';
+                            item.querySelector('.status').className = 'status success';
+                        } else {
+                            item.querySelector('.status').textContent = '✗';
+                            item.querySelector('.status').className = 'status error';
+                        }
+                    };
+
+                    xhr.onerror = () => {
+                        item.querySelector('.status').textContent = '✗';
+                        item.querySelector('.status').className = 'status error';
+                    };
+
+                    xhr.send(formData);
+                } catch (e) {
+                    item.querySelector('.status').textContent = '✗';
+                    item.querySelector('.status').className = 'status error';
+                }
+            }
+        }
+
+        function formatSize(bytes) {
+            if (!bytes) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        init();
+    </script>
+</body>
+</html>

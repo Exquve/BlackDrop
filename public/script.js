@@ -1,15 +1,22 @@
 const socket = io();
 
-// State
+// ============================================================================
+// STATE
+// ============================================================================
 let allFiles = [];
 let currentFilter = 'all';
 let currentSort = 'date';
 let sortAscending = false;
 let selectedFiles = new Set();
 let isListView = false;
-let currentPath = '/';  // Current folder path
+let currentPath = '/';
+let authToken = localStorage.getItem('blackdrop-token');
+let currentUser = null;
+let allTags = {};
 
-// DOM Elements
+// ============================================================================
+// DOM ELEMENTS
+// ============================================================================
 const fileGrid = document.getElementById('fileGrid');
 const searchInput = document.getElementById('searchInput');
 const fileInput = document.getElementById('fileInput');
@@ -28,24 +35,97 @@ const sortLabel = document.getElementById('sortLabel');
 const themeSwitch = document.getElementById('themeSwitch');
 const breadcrumbNav = document.getElementById('breadcrumbNav');
 
-// --- Initialization ---
-document.addEventListener('DOMContentLoaded', () => {
-    fetchContents();
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+document.addEventListener('DOMContentLoaded', async () => {
+    await checkAuthStatus();
     loadTheme();
     updateStorageInfo();
     setupKeyboardShortcuts();
     setupGridContextMenu();
+    setupAdvancedSearch();
+    loadTags();
 });
 
-// --- Theme ---
+// ============================================================================
+// AUTHENTICATION
+// ============================================================================
+async function checkAuthStatus() {
+    try {
+        const res = await fetch('/api/auth/status');
+        const data = await res.json();
+        
+        if (data.authEnabled && !authToken) {
+            showLoginModal();
+        } else {
+            fetchContents();
+        }
+    } catch (e) {
+        fetchContents();
+    }
+}
+
+function showLoginModal() {
+    const modal = document.getElementById('loginModal');
+    if (modal) modal.classList.add('active');
+}
+
+window.login = async () => {
+    const username = document.getElementById('loginUsername').value;
+    const password = document.getElementById('loginPassword').value;
+    const errorEl = document.getElementById('loginError');
+
+    try {
+        const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            authToken = data.token;
+            currentUser = data.username;
+            localStorage.setItem('blackdrop-token', authToken);
+            document.getElementById('loginModal').classList.remove('active');
+            fetchContents();
+            showToast(`Hoş geldin, ${data.username}!`, 'success');
+        } else {
+            const err = await res.json();
+            errorEl.textContent = err.error || 'Giriş başarısız';
+            errorEl.style.display = 'block';
+        }
+    } catch (e) {
+        errorEl.textContent = 'Bağlantı hatası';
+        errorEl.style.display = 'block';
+    }
+};
+
+window.logout = () => {
+    authToken = null;
+    currentUser = null;
+    localStorage.removeItem('blackdrop-token');
+    location.reload();
+};
+
+function getAuthHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    return headers;
+}
+
+// ============================================================================
+// THEME
+// ============================================================================
 function loadTheme() {
     const theme = localStorage.getItem('blackdrop-theme') || 'dark';
     if (theme === 'light') {
         document.documentElement.setAttribute('data-theme', 'light');
-        themeSwitch.classList.remove('active');
+        themeSwitch?.classList.remove('active');
     } else {
         document.documentElement.removeAttribute('data-theme');
-        themeSwitch.classList.add('active');
+        themeSwitch?.classList.add('active');
     }
 }
 
@@ -60,9 +140,11 @@ window.toggleTheme = () => {
         themeSwitch.classList.add('active');
         localStorage.setItem('blackdrop-theme', 'dark');
     }
-}
+};
 
-// --- Storage Info ---
+// ============================================================================
+// STORAGE INFO
+// ============================================================================
 function updateStorageInfo() {
     fetch('/storage')
         .then(res => res.json())
@@ -70,19 +152,18 @@ function updateStorageInfo() {
             const used = formatSize(data.used);
             const total = formatSize(data.total);
             const percent = Math.min((data.used / data.total) * 100, 100);
-
             document.getElementById('storageValue').textContent = `${used} / ${total}`;
             document.getElementById('storageFill').style.width = `${percent}%`;
         })
         .catch(() => {
-            // Storage endpoint might not exist yet
             document.getElementById('storageValue').textContent = '-- / --';
         });
 }
 
-// --- Socket.io Events ---
+// ============================================================================
+// SOCKET.IO EVENTS
+// ============================================================================
 socket.on('file:uploaded', (data) => {
-    // Only update if we're in the same folder
     const uploadPath = data.parentPath === '/' ? '/' : '/' + data.parentPath;
     if (uploadPath === currentPath || (uploadPath === '/' && currentPath === '/')) {
         allFiles.unshift(data.file);
@@ -123,25 +204,40 @@ socket.on('folder:deleted', (data) => {
     updateStorageInfo();
 });
 
-// --- Content Fetching (Folders + Files) ---
+socket.on('activity:new', (data) => {
+    // Could show real-time activity notifications
+});
+
+// ============================================================================
+// CONTENT FETCHING
+// ============================================================================
 function fetchContents() {
     showLoadingSkeletons();
-
     const pathParam = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
-    fetch(`/contents?path=${encodeURIComponent(pathParam)}`)
-        .then(res => res.json())
+    
+    fetch(`/contents?path=${encodeURIComponent(pathParam)}`, {
+        headers: getAuthHeaders()
+    })
+        .then(res => {
+            if (res.status === 401) {
+                showLoginModal();
+                throw new Error('Auth required');
+            }
+            return res.json();
+        })
         .then(data => {
             allFiles = data;
             updateBreadcrumbs();
             applyFilterAndRender();
         })
         .catch(err => {
-            showToast('Dosyalar yüklenemedi', 'error');
+            if (err.message !== 'Auth required') {
+                showToast('Dosyalar yüklenemedi', 'error');
+            }
             fileGrid.innerHTML = '';
         });
 }
 
-// Legacy function for backwards compatibility
 function fetchFiles() {
     fetchContents();
 }
@@ -160,13 +256,94 @@ function showLoadingSkeletons() {
     }
 }
 
-// --- Sorting ---
+// ============================================================================
+// TAGS
+// ============================================================================
+async function loadTags() {
+    try {
+        const res = await fetch('/api/tags', { headers: getAuthHeaders() });
+        if (res.ok) {
+            allTags = await res.json();
+        }
+    } catch (e) { }
+}
+
+async function addTag(filePath, tag) {
+    try {
+        await fetch('/api/tags', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ path: filePath, tag })
+        });
+        if (!allTags[filePath]) allTags[filePath] = [];
+        allTags[filePath].push(tag);
+        showToast(`Etiket eklendi: ${tag}`, 'success');
+    } catch (e) {
+        showToast('Etiket eklenemedi', 'error');
+    }
+}
+
+async function removeTag(filePath, tag) {
+    try {
+        await fetch('/api/tags', {
+            method: 'DELETE',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ path: filePath, tag })
+        });
+        if (allTags[filePath]) {
+            allTags[filePath] = allTags[filePath].filter(t => t !== tag);
+        }
+    } catch (e) { }
+}
+
+// ============================================================================
+// FAVORITES
+// ============================================================================
+async function toggleFavorite(filePath) {
+    const file = allFiles.find(f => {
+        const fp = currentPath === '/' ? f.name : currentPath.replace(/^\//, '') + '/' + f.name;
+        return fp === filePath || f.name === filePath;
+    });
+    
+    if (!file) return;
+    
+    const fullPath = currentPath === '/' ? file.name : currentPath.replace(/^\//, '') + '/' + file.name;
+    
+    try {
+        if (file.isFavorite) {
+            await fetch('/api/favorites', {
+                method: 'DELETE',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ path: fullPath })
+            });
+            file.isFavorite = false;
+            showToast('Favorilerden kaldırıldı', 'success');
+        } else {
+            await fetch('/api/favorites', {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ path: fullPath })
+            });
+            file.isFavorite = true;
+            showToast('Favorilere eklendi', 'success');
+        }
+        applyFilterAndRender();
+    } catch (e) {
+        showToast('İşlem başarısız', 'error');
+    }
+}
+
+// ============================================================================
+// SORTING
+// ============================================================================
 function sortFiles(files) {
     const sorted = [...files];
-
     sorted.sort((a, b) => {
+        // Folders always first
+        if (a.isFolder && !b.isFolder) return -1;
+        if (!a.isFolder && b.isFolder) return 1;
+        
         let comparison = 0;
-
         switch (currentSort) {
             case 'name':
                 comparison = a.name.localeCompare(b.name);
@@ -175,22 +352,19 @@ function sortFiles(files) {
                 comparison = b.size - a.size;
                 break;
             case 'type':
-                comparison = a.type.localeCompare(b.type);
+                comparison = (a.type || '').localeCompare(b.type || '');
                 break;
             case 'date':
             default:
                 comparison = new Date(b.date) - new Date(a.date);
                 break;
         }
-
         return sortAscending ? -comparison : comparison;
     });
-
     return sorted;
 }
 
-// Sort dropdown handling
-sortBtn.addEventListener('click', (e) => {
+sortBtn?.addEventListener('click', (e) => {
     e.stopPropagation();
     sortMenu.classList.toggle('active');
 });
@@ -198,17 +372,14 @@ sortBtn.addEventListener('click', (e) => {
 document.querySelectorAll('.sort-option').forEach(option => {
     option.addEventListener('click', (e) => {
         const sort = e.currentTarget.dataset.sort;
-
         if (currentSort === sort) {
             sortAscending = !sortAscending;
         } else {
             currentSort = sort;
             sortAscending = false;
         }
-
         document.querySelectorAll('.sort-option').forEach(o => o.classList.remove('active'));
         e.currentTarget.classList.add('active');
-
         sortLabel.textContent = e.currentTarget.textContent.trim();
         sortMenu.classList.remove('active');
         applyFilterAndRender();
@@ -216,60 +387,57 @@ document.querySelectorAll('.sort-option').forEach(option => {
 });
 
 document.addEventListener('click', () => {
-    sortMenu.classList.remove('active');
+    sortMenu?.classList.remove('active');
 });
 
-// --- Rendering ---
+// ============================================================================
+// FILTERING & RENDERING
+// ============================================================================
 function applyFilterAndRender() {
     let filtered = allFiles;
 
-    // 1. Filter by Category
-    if (currentFilter !== 'all') {
+    // Filter by category
+    if (currentFilter === 'favorites') {
+        filtered = filtered.filter(f => f.isFavorite);
+    } else if (currentFilter !== 'all') {
         if (currentFilter === 'media') {
-            filtered = filtered.filter(f => f.type === 'image' || f.type === 'video');
+            filtered = filtered.filter(f => f.type === 'image' || f.type === 'video' || f.type === 'audio');
         } else {
             filtered = filtered.filter(f => f.type === currentFilter);
         }
     }
 
-    // 2. Filter by Search
-    const searchTerm = searchInput.value.toLowerCase();
+    // Filter by search
+    const searchTerm = searchInput?.value.toLowerCase() || '';
     if (searchTerm) {
         filtered = filtered.filter(f => f.name.toLowerCase().includes(searchTerm));
     }
 
-    // 3. Sort
+    // Sort
     filtered = sortFiles(filtered);
 
-    // Update count (re-query since filterFiles may rebuild the element)
-    document.getElementById('fileCount').textContent = filtered.length;
+    // Update count
+    const countEl = document.getElementById('fileCount');
+    if (countEl) countEl.textContent = filtered.length;
 
     renderGrid(filtered);
 }
 
-// --- Icons ---
+// ============================================================================
+// ICONS
+// ============================================================================
 function getIconForType(type) {
     const icons = {
-        folder: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
-                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
-        </svg>`,
-        video: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
-                d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-        </svg>`,
-        document: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-        </svg>`,
-        image: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
-                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-        </svg>`,
-        other: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
-                d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
-        </svg>`
+        folder: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>`,
+        video: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>`,
+        document: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>`,
+        image: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>`,
+        audio: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>`,
+        pdf: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>`,
+        code: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>`,
+        markdown: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>`,
+        archive: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>`,
+        other: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>`
     };
     return icons[type] || icons.other;
 }
@@ -283,24 +451,29 @@ function formatDate(dateString) {
     const now = new Date();
     const diff = now - date;
 
-    // Less than 24 hours
     if (diff < 86400000) {
         const hours = Math.floor(diff / 3600000);
         if (hours < 1) {
             const mins = Math.floor(diff / 60000);
-            return mins <= 1 ? 'Just now' : `${mins}m ago`;
+            return mins <= 1 ? 'Az önce' : `${mins}dk önce`;
         }
-        return `${hours}h ago`;
+        return `${hours}sa önce`;
     }
 
-    // Less than 7 days
     if (diff < 604800000) {
         const days = Math.floor(diff / 86400000);
-        return days === 1 ? 'Yesterday' : `${days}d ago`;
+        return days === 1 ? 'Dün' : `${days}g önce`;
     }
 
-    // Default format
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString('tr-TR', { month: 'short', day: 'numeric' });
+}
+
+function formatSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 function renderGrid(files) {
@@ -313,8 +486,8 @@ function renderGrid(files) {
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" 
                         d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
                 </svg>
-                <h3>No files yet</h3>
-                <p>Drag and drop files here or click upload to get started</p>
+                <h3>Dosya yok</h3>
+                <p>Dosyaları sürükleyip bırakın veya yükle butonunu kullanın</p>
             </div>
         `;
         return;
@@ -323,24 +496,25 @@ function renderGrid(files) {
     files.forEach((file, index) => {
         const card = document.createElement('div');
         card.className = 'file-card';
-        card.draggable = true; // Enable Drag
+        card.draggable = true;
         card.setAttribute('data-name', file.name);
         card.setAttribute('data-isfolder', file.isFolder);
 
-        if (selectedFiles.has(file.name)) {
-            card.classList.add('selected');
-        }
+        if (selectedFiles.has(file.name)) card.classList.add('selected');
         card.setAttribute('data-filename', file.name);
         card.style.animationDelay = `${index * 0.03}s`;
 
         let previewHtml = '';
         if (file.type === 'image') {
+            const imgPath = currentPath === '/' ? file.name : `${currentPath.replace(/^\//, '')}/${file.name}`;
             previewHtml = `<img src="/download/${encodeURIComponent(file.name)}" loading="lazy" alt="${file.name}">`;
         } else {
             previewHtml = getIconForType(file.type);
         }
 
         const ext = file.isFolder ? 'FOLDER' : getFileExtension(file.name);
+        const favoriteClass = file.isFavorite ? 'active' : '';
+        const tagsHtml = (file.tags || []).map(t => `<span class="file-tag">${t}</span>`).join('');
 
         card.innerHTML = `
             <div class="file-checkbox">
@@ -348,26 +522,33 @@ function renderGrid(files) {
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
                 </svg>
             </div>
+            <button class="favorite-btn ${favoriteClass}" onclick="event.stopPropagation(); toggleFavorite('${file.name}')" title="Favorilere ekle">
+                <svg fill="${file.isFavorite ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
+                </svg>
+            </button>
             <div class="file-preview">
                 ${previewHtml}
                 <span class="file-type-badge">${ext}</span>
             </div>
             <div class="file-details">
                 <div class="file-name" title="${file.name}">${file.name}</div>
+                <div class="file-tags">${tagsHtml}</div>
                 <div class="file-meta">
                     <span class="file-size">${formatSize(file.size)}</span>
                     <span class="file-date">${formatDate(file.date)}</span>
+                    ${file.downloadCount ? `<span class="download-count" title="İndirme sayısı">↓${file.downloadCount}</span>` : ''}
                 </div>
             </div>
         `;
 
-        // Interactions
+        // Events
         card.addEventListener('dblclick', () => previewFile(file.name));
         card.addEventListener('contextmenu', (e) => showContextMenu(e, file.name));
-
         card.addEventListener('click', (e) => {
+            if (e.target.closest('.favorite-btn')) return;
+            
             if (e.ctrlKey || e.metaKey) {
-                // Toggle selection
                 if (selectedFiles.has(file.name)) {
                     selectedFiles.delete(file.name);
                     card.classList.remove('selected');
@@ -376,15 +557,15 @@ function renderGrid(files) {
                     card.classList.add('selected');
                 }
             } else {
-                // Single selection
                 selectedFiles.clear();
                 document.querySelectorAll('.file-card').forEach(c => c.classList.remove('selected'));
                 selectedFiles.add(file.name);
                 card.classList.add('selected');
             }
+            updateBulkActions();
         });
 
-        // Drag & Drop Events
+        // Drag & Drop
         card.addEventListener('dragstart', handleDragStart);
         if (file.isFolder) {
             card.addEventListener('dragover', handleDragOver);
@@ -396,84 +577,166 @@ function renderGrid(files) {
     });
 }
 
-// --- Sidebar Filtering ---
-window.filterFiles = (type) => {
-    currentFilter = type;
-
-    // Update active state
-    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-    document.querySelector(`.nav-item[data-filter="${type}"]`).classList.add('active');
-
-    // Update Title
-    const titles = { 'all': 'All Files', 'media': 'Media', 'document': 'Documents' };
-    sectionTitle.innerHTML = `${titles[type] || 'Files'} <span class="file-count" id="fileCount">0</span>`;
-
-    applyFilterAndRender();
+// ============================================================================
+// BULK ACTIONS
+// ============================================================================
+function updateBulkActions() {
+    const bulkBar = document.getElementById('bulkActionsBar');
+    if (!bulkBar) return;
+    
+    if (selectedFiles.size > 1) {
+        bulkBar.style.display = 'flex';
+        document.getElementById('selectedCount').textContent = `${selectedFiles.size} öğe seçili`;
+    } else {
+        bulkBar.style.display = 'none';
+    }
 }
 
-searchInput.addEventListener('input', applyFilterAndRender);
+window.bulkDelete = async () => {
+    if (selectedFiles.size === 0) return;
+    if (!confirm(`${selectedFiles.size} öğeyi silmek istediğinizden emin misiniz?`)) return;
 
-// --- View Toggle ---
+    for (const name of selectedFiles) {
+        await fetch(`/files/${encodeURIComponent(name)}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+    }
+    selectedFiles.clear();
+    updateBulkActions();
+    fetchContents();
+    showToast('Dosyalar silindi', 'success');
+};
+
+window.bulkDownloadZip = async () => {
+    if (selectedFiles.size === 0) return;
+    
+    const paths = [...selectedFiles].map(name => 
+        currentPath === '/' ? name : `${currentPath.replace(/^\//, '')}/${name}`
+    );
+
+    try {
+        const res = await fetch('/api/download-zip', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ paths })
+        });
+
+        if (res.ok) {
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'download.zip';
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('Zip indiriliyor...', 'success');
+        }
+    } catch (e) {
+        showToast('Zip oluşturulamadı', 'error');
+    }
+};
+
+window.clearSelection = () => {
+    selectedFiles.clear();
+    document.querySelectorAll('.file-card').forEach(c => c.classList.remove('selected'));
+    updateBulkActions();
+};
+
+// ============================================================================
+// SIDEBAR FILTERING
+// ============================================================================
+window.filterFiles = (type) => {
+    currentFilter = type;
+    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+    document.querySelector(`.nav-item[data-filter="${type}"]`)?.classList.add('active');
+
+    const titles = { 
+        'all': 'Tüm Dosyalar', 
+        'media': 'Medya', 
+        'document': 'Belgeler',
+        'favorites': 'Favoriler',
+        'recent': 'Son Açılanlar'
+    };
+    if (sectionTitle) {
+        sectionTitle.innerHTML = `${titles[type] || 'Dosyalar'} <span class="file-count" id="fileCount">0</span>`;
+    }
+
+    if (type === 'recent') {
+        fetchRecentFiles();
+    } else {
+        applyFilterAndRender();
+    }
+};
+
+async function fetchRecentFiles() {
+    try {
+        const res = await fetch('/api/recent', { headers: getAuthHeaders() });
+        if (res.ok) {
+            const recent = await res.json();
+            // Transform recent to display format
+            showToast('Son açılanlar yüklendi', 'success');
+        }
+    } catch (e) { }
+}
+
+searchInput?.addEventListener('input', applyFilterAndRender);
+
+// ============================================================================
+// VIEW TOGGLE
+// ============================================================================
 const viewToggleBtn = document.getElementById('viewToggleBtn');
 const viewIcon = document.getElementById('viewIcon');
 
-viewToggleBtn.addEventListener('click', () => {
+viewToggleBtn?.addEventListener('click', () => {
     isListView = !isListView;
     fileGrid.classList.toggle('list-view', isListView);
-
-    // Update icon
-    if (isListView) {
-        viewIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-            d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>`;
-    } else {
-        viewIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>`;
+    if (viewIcon) {
+        viewIcon.innerHTML = isListView 
+            ? `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>`
+            : `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>`;
     }
 });
 
-// --- Upload Logic ---
-fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+// ============================================================================
+// UPLOAD
+// ============================================================================
+fileInput?.addEventListener('change', (e) => handleFiles(e.target.files));
 
-// Drag & Drop
 let dragCounter = 0;
 
 document.addEventListener('dragenter', (e) => {
-    // Only show overlay if dragging files from outside (not internal file cards)
-    const types = e.dataTransfer.types;
+    const types = e.dataTransfer?.types || [];
     const isExternalFile = types.includes('Files') && !types.includes('text/plain');
-    
     if (isExternalFile) {
         e.preventDefault();
         dragCounter++;
-        dropOverlay.classList.add('active');
+        dropOverlay?.classList.add('active');
     }
 });
 
 document.addEventListener('dragleave', (e) => {
     dragCounter--;
     if (dragCounter === 0) {
-        dropOverlay.classList.remove('active');
+        dropOverlay?.classList.remove('active');
     }
 });
 
 document.addEventListener('drop', (e) => {
     e.preventDefault();
     dragCounter = 0;
-    dropOverlay.classList.remove('active');
+    dropOverlay?.classList.remove('active');
 
-    // Only handle file upload if files are being dropped (not internal drag-drop)
-    const isInternalDrag = e.dataTransfer.getData('text/plain');
-    
-    if (!isInternalDrag && (e.target === dropOverlay || dropOverlay.contains(e.target) || e.target === document.body)) {
+    const isInternalDrag = e.dataTransfer?.getData('text/plain');
+    if (!isInternalDrag && e.dataTransfer?.files?.length) {
         handleFiles(e.dataTransfer.files);
     }
 });
 
-document.addEventListener('dragover', (e) => {
-    e.preventDefault();
-});
+document.addEventListener('dragover', (e) => e.preventDefault());
 
 function handleFiles(files) {
-    if (!files.length) return;
+    if (!files?.length) return;
     [...files].forEach(uploadFile);
 }
 
@@ -481,62 +744,68 @@ function uploadFile(file) {
     const formData = new FormData();
     formData.append('file', file);
 
-    // Show Progress UI
-    uploadStatus.style.display = 'block';
-    uploadFileName.textContent = file.name;
-    uploadProgress.style.width = '0%';
+    if (uploadStatus) uploadStatus.style.display = 'block';
+    if (uploadFileName) uploadFileName.textContent = file.name;
+    if (uploadProgress) uploadProgress.style.width = '0%';
 
     const xhr = new XMLHttpRequest();
     const parentPathQuery = currentPath === '/' ? '' : `?parentPath=${encodeURIComponent(currentPath)}`;
     xhr.open('POST', `/upload${parentPathQuery}`, true);
+    
+    if (authToken) {
+        xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+    }
 
     xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
+        if (e.lengthComputable && uploadProgress) {
             const percent = (e.loaded / e.total) * 100;
             uploadProgress.style.width = percent + '%';
         }
     };
 
     xhr.onload = () => {
-        if (xhr.status === 200) {
-            // Toast handled by socket event
-        } else {
-            showToast('Upload failed', 'error');
+        if (xhr.status !== 200) {
+            showToast('Yükleme başarısız', 'error');
         }
         setTimeout(() => {
-            uploadStatus.style.display = 'none';
-            uploadProgress.style.width = '0%';
+            if (uploadStatus) uploadStatus.style.display = 'none';
+            if (uploadProgress) uploadProgress.style.width = '0%';
         }, 1000);
     };
 
     xhr.onerror = () => {
-        showToast('Upload failed', 'error');
-        uploadStatus.style.display = 'none';
+        showToast('Yükleme başarısız', 'error');
+        if (uploadStatus) uploadStatus.style.display = 'none';
     };
 
     xhr.send(formData);
 }
 
-// --- Context Menu ---
+// ============================================================================
+// CONTEXT MENU
+// ============================================================================
 let selectedFilename = null;
 
 function showContextMenu(e, filename) {
     e.preventDefault();
     selectedFilename = filename;
 
-    const menuWidth = 180;
-    const menuHeight = 220;
+    const file = allFiles.find(f => f.name === filename);
+    const isFolder = file?.isFolder;
 
+    // Update context menu items based on file type
+    const ctxPreview = document.getElementById('ctxPreview');
+    const ctxShare = document.getElementById('ctxShare');
+    
+    if (ctxPreview) ctxPreview.style.display = isFolder ? 'none' : 'flex';
+
+    const menuWidth = 200;
+    const menuHeight = 280;
     let x = e.pageX;
     let y = e.pageY;
 
-    // Keep menu in viewport
-    if (x + menuWidth > window.innerWidth) {
-        x = window.innerWidth - menuWidth - 10;
-    }
-    if (y + menuHeight > window.innerHeight) {
-        y = window.innerHeight - menuHeight - 10;
-    }
+    if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 10;
+    if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 10;
 
     contextMenu.style.display = 'block';
     contextMenu.style.left = `${x}px`;
@@ -544,154 +813,281 @@ function showContextMenu(e, filename) {
 }
 
 document.addEventListener('click', () => {
-    contextMenu.style.display = 'none';
+    if (contextMenu) contextMenu.style.display = 'none';
 });
 
-document.getElementById('ctxPreview').addEventListener('click', () => {
+document.getElementById('ctxPreview')?.addEventListener('click', () => {
     if (selectedFilename) previewFile(selectedFilename);
 });
 
-document.getElementById('ctxDownload').addEventListener('click', () => {
+document.getElementById('ctxDownload')?.addEventListener('click', () => {
     if (selectedFilename) downloadFile(selectedFilename);
 });
 
-document.getElementById('ctxRename').addEventListener('click', () => {
+document.getElementById('ctxRename')?.addEventListener('click', () => {
     if (selectedFilename) showRenameModal(selectedFilename);
 });
 
-document.getElementById('ctxDelete').addEventListener('click', () => {
+document.getElementById('ctxDelete')?.addEventListener('click', () => {
     if (selectedFilename) showDeleteModal(selectedFilename);
 });
 
-document.getElementById('ctxProperties').addEventListener('click', () => {
+document.getElementById('ctxProperties')?.addEventListener('click', () => {
     if (selectedFilename) showProperties(selectedFilename);
 });
 
-// --- Preview Modal ---
+document.getElementById('ctxShare')?.addEventListener('click', () => {
+    if (selectedFilename) showShareModal(selectedFilename);
+});
+
+document.getElementById('ctxAddTag')?.addEventListener('click', () => {
+    if (selectedFilename) showTagModal(selectedFilename);
+});
+
+// ============================================================================
+// SHARE MODAL
+// ============================================================================
+async function showShareModal(filename) {
+    const modal = document.getElementById('shareModal');
+    if (!modal) return;
+
+    const file = allFiles.find(f => f.name === filename);
+    const filePath = currentPath === '/' ? filename : `${currentPath.replace(/^\//, '')}/${filename}`;
+
+    document.getElementById('shareFileName').textContent = filename;
+    document.getElementById('sharePassword').value = '';
+    document.getElementById('shareExpiry').value = '7';
+    document.getElementById('shareMaxDownloads').value = '';
+    document.getElementById('shareUploadOnly').checked = false;
+    document.getElementById('shareResult').style.display = 'none';
+
+    // Show upload only option only for folders
+    document.getElementById('uploadOnlyOption').style.display = file?.isFolder ? 'block' : 'none';
+
+    modal.classList.add('active');
+}
+
+window.closeShareModal = () => {
+    document.getElementById('shareModal')?.classList.remove('active');
+};
+
+window.createShareLink = async () => {
+    const password = document.getElementById('sharePassword').value;
+    const expiryDays = parseInt(document.getElementById('shareExpiry').value) || 7;
+    const maxDownloads = parseInt(document.getElementById('shareMaxDownloads').value) || null;
+    const uploadOnly = document.getElementById('shareUploadOnly').checked;
+
+    const filePath = currentPath === '/' ? selectedFilename : `${currentPath.replace(/^\//, '')}/${selectedFilename}`;
+
+    try {
+        const res = await fetch('/api/share', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+                path: filePath,
+                password: password || null,
+                expiresIn: expiryDays * 24 * 60 * 60 * 1000,
+                maxDownloads,
+                uploadOnly
+            })
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            document.getElementById('shareUrl').value = data.shareUrl;
+            document.getElementById('shareResult').style.display = 'block';
+            
+            // Generate QR code
+            const qrRes = await fetch(`/api/qr?url=${encodeURIComponent(data.shareUrl)}`);
+            if (qrRes.ok) {
+                const qrData = await qrRes.json();
+                document.getElementById('shareQR').src = qrData.qr;
+            }
+            
+            showToast('Paylaşım linki oluşturuldu', 'success');
+        }
+    } catch (e) {
+        showToast('Link oluşturulamadı', 'error');
+    }
+};
+
+window.copyShareLink = () => {
+    const input = document.getElementById('shareUrl');
+    input.select();
+    navigator.clipboard.writeText(input.value);
+    showToast('Link kopyalandı!', 'success');
+};
+
+// ============================================================================
+// TAG MODAL
+// ============================================================================
+function showTagModal(filename) {
+    const modal = document.getElementById('tagModal');
+    if (!modal) return;
+
+    const filePath = currentPath === '/' ? filename : `${currentPath.replace(/^\//, '')}/${filename}`;
+    const existingTags = allTags[filePath] || [];
+
+    document.getElementById('tagFileName').textContent = filename;
+    document.getElementById('tagInput').value = '';
+    
+    const tagsContainer = document.getElementById('existingTags');
+    tagsContainer.innerHTML = existingTags.map(t => `
+        <span class="tag-item">
+            ${t}
+            <button onclick="removeTagFromFile('${filePath}', '${t}')">&times;</button>
+        </span>
+    `).join('');
+
+    modal.classList.add('active');
+}
+
+window.closeTagModal = () => {
+    document.getElementById('tagModal')?.classList.remove('active');
+};
+
+window.addTagToFile = async () => {
+    const tag = document.getElementById('tagInput').value.trim();
+    if (!tag) return;
+
+    const filePath = currentPath === '/' ? selectedFilename : `${currentPath.replace(/^\//, '')}/${selectedFilename}`;
+    await addTag(filePath, tag);
+    showTagModal(selectedFilename); // Refresh
+};
+
+window.removeTagFromFile = async (filePath, tag) => {
+    await removeTag(filePath, tag);
+    showTagModal(selectedFilename); // Refresh
+};
+
+// ============================================================================
+// PREVIEW MODAL
+// ============================================================================
 const previewModal = document.getElementById('previewModal');
 const previewContainer = document.getElementById('previewContainer');
 const previewTitle = document.getElementById('previewTitle');
 const previewDownloadBtn = document.getElementById('previewDownloadBtn');
 
-function previewFile(filename) {
+async function previewFile(filename) {
     const file = allFiles.find(f => f.name === filename);
     if (!file) return;
 
     // Folder navigation
     if (file.isFolder) {
-        const newPath = currentPath === '/'
-            ? '/' + file.name
-            : currentPath + '/' + file.name;
+        const newPath = currentPath === '/' ? '/' + file.name : currentPath + '/' + file.name;
         navigateToFolder(newPath);
         return;
     }
 
-    previewTitle.textContent = file.name;
-    const parentPathQuery = currentPath === '/' ? '' : `?parentPath=${encodeURIComponent(currentPath)}`;
-    const url = `/download/${encodeURIComponent(filename)}${parentPathQuery}`;
-    const fullUrl = `${window.location.origin}${url}`;
+    if (previewTitle) previewTitle.textContent = file.name;
+    const url = `/download/${encodeURIComponent(filename)}`;
 
-    // Video formats that browsers can't play natively
-    const nonBrowserFormats = ['.mkv', '.avi', '.wmv', '.flv', '.m4v'];
-    const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
-    const isNonBrowserVideo = file.type === 'video' && nonBrowserFormats.includes(ext);
-
+    // Different previews based on type
     if (file.type === 'image') {
         previewContainer.innerHTML = `<img src="${url}" alt="${file.name}">`;
-    } else if (file.type === 'video' && !isNonBrowserVideo) {
-        // Browser-playable video (mp4, webm, ogg)
+    } else if (file.type === 'video') {
         previewContainer.innerHTML = `<video src="${url}" controls autoplay></video>`;
-    } else if (isNonBrowserVideo) {
-        // Non-browser video - show copyable link for VLC
+    } else if (file.type === 'audio') {
         previewContainer.innerHTML = `
-            <div class="vlc-link-container">
-                <div class="vlc-icon">
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="64" height="64">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
-                            d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                    </svg>
+            <div class="audio-preview">
+                <div class="audio-icon">
+                    ${getIconForType('audio')}
                 </div>
-                <p class="vlc-message">Bu format tarayıcıda oynatılamıyor. Aşağıdaki linki VLC veya başka bir oynatıcıda açabilirsiniz.</p>
-                <div class="vlc-link-box">
-                    <input type="text" id="vlcLinkInput" class="vlc-link-input" value="${fullUrl}" readonly>
-                    <button class="vlc-copy-btn" onclick="copyVlcLink()">
-                        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                        </svg>
-                        Kopyala
-                    </button>
-                </div>
-                <p class="vlc-hint">💡 VLC'de: Media → Open Network Stream → Linki yapıştır</p>
+                <div class="audio-name">${file.name}</div>
+                <audio src="${url}" controls autoplay></audio>
             </div>
         `;
+    } else if (file.type === 'pdf') {
+        previewContainer.innerHTML = `<iframe src="${url}" class="pdf-preview"></iframe>`;
+    } else if (file.type === 'code' || file.type === 'markdown') {
+        // Fetch and display code with syntax highlighting
+        try {
+            const res = await fetch(`/api/preview/${encodeURIComponent(filename)}`, {
+                headers: getAuthHeaders()
+            });
+            if (res.ok) {
+                const data = await res.json();
+                const ext = filename.split('.').pop().toLowerCase();
+                const langMap = {
+                    'js': 'javascript', 'ts': 'typescript', 'py': 'python',
+                    'java': 'java', 'c': 'c', 'cpp': 'cpp', 'h': 'c',
+                    'css': 'css', 'html': 'html', 'json': 'json',
+                    'xml': 'xml', 'md': 'markdown', 'sql': 'sql',
+                    'sh': 'bash', 'yml': 'yaml', 'yaml': 'yaml'
+                };
+                const lang = langMap[ext] || 'plaintext';
+                
+                if (file.type === 'markdown') {
+                    previewContainer.innerHTML = `<div class="markdown-preview">${marked.parse(data.content)}</div>`;
+                } else {
+                    previewContainer.innerHTML = `<pre><code class="language-${lang}">${escapeHtml(data.content)}</code></pre>`;
+                    // Apply syntax highlighting if hljs is available
+                    if (window.hljs) {
+                        previewContainer.querySelectorAll('pre code').forEach(block => {
+                            hljs.highlightElement(block);
+                        });
+                    }
+                }
+            }
+        } catch (e) {
+            downloadFile(filename);
+            return;
+        }
     } else {
-        // For other files, just download
         downloadFile(filename);
         return;
     }
 
-    previewDownloadBtn.onclick = () => downloadFile(filename);
-    previewModal.classList.add('active');
+    if (previewDownloadBtn) previewDownloadBtn.onclick = () => downloadFile(filename);
+    previewModal?.classList.add('active');
 }
 
-// Update Upload Function to support parentPath
-// Note: You need to find where uploadFile is defined and update it.
-// Assuming it's elsewhere in the file, I'll search for it first.
-
-// Copy VLC link function
-window.copyVlcLink = () => {
-    const input = document.getElementById('vlcLinkInput');
-    if (input) {
-        input.select();
-        navigator.clipboard.writeText(input.value).then(() => {
-            showToast('Link kopyalandı!', 'success');
-        }).catch(() => {
-            // Fallback for older browsers
-            document.execCommand('copy');
-            showToast('Link kopyalandı!', 'success');
-        });
-    }
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 window.closePreviewModal = () => {
-    previewModal.classList.remove('active');
-    previewContainer.innerHTML = '';
-}
+    previewModal?.classList.remove('active');
+    if (previewContainer) previewContainer.innerHTML = '';
+};
 
-previewModal.addEventListener('click', (e) => {
+previewModal?.addEventListener('click', (e) => {
     if (e.target === previewModal) closePreviewModal();
 });
 
-// --- Rename Modal ---
+// ============================================================================
+// RENAME MODAL
+// ============================================================================
 const renameModal = document.getElementById('renameModal');
 const renameInput = document.getElementById('renameInput');
 let fileToRename = null;
 
 function showRenameModal(filename) {
     fileToRename = filename;
-    renameInput.value = filename;
-    renameModal.classList.add('active');
-
-    // Select filename without extension
-    setTimeout(() => {
-        const dotIndex = filename.lastIndexOf('.');
-        renameInput.focus();
-        if (dotIndex > 0) {
-            renameInput.setSelectionRange(0, dotIndex);
-        } else {
-            renameInput.select();
-        }
-    }, 100);
+    if (renameInput) {
+        renameInput.value = filename;
+        setTimeout(() => {
+            const dotIndex = filename.lastIndexOf('.');
+            renameInput.focus();
+            if (dotIndex > 0) {
+                renameInput.setSelectionRange(0, dotIndex);
+            } else {
+                renameInput.select();
+            }
+        }, 100);
+    }
+    renameModal?.classList.add('active');
 }
 
 window.closeRenameModal = () => {
-    renameModal.classList.remove('active');
+    renameModal?.classList.remove('active');
     fileToRename = null;
-}
+};
 
 window.confirmRename = () => {
-    const newName = renameInput.value.trim();
+    const newName = renameInput?.value.trim();
     if (!newName || newName === fileToRename) {
         closeRenameModal();
         return;
@@ -699,13 +1095,12 @@ window.confirmRename = () => {
 
     fetch(`/files/${encodeURIComponent(fileToRename)}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ newName })
     })
         .then(res => {
             if (res.ok) {
-                showToast('File renamed', 'success');
-                // Update local state
+                showToast('Dosya yeniden adlandırıldı', 'success');
                 const file = allFiles.find(f => f.name === fileToRename);
                 if (file) {
                     file.name = newName;
@@ -713,58 +1108,68 @@ window.confirmRename = () => {
                 }
             } else {
                 return res.json().then(data => {
-                    throw new Error(data.error || 'Rename failed');
+                    throw new Error(data.error || 'Yeniden adlandırma başarısız');
                 });
             }
         })
         .catch(err => showToast(err.message, 'error'))
         .finally(() => closeRenameModal());
-}
+};
 
-renameInput.addEventListener('keydown', (e) => {
+renameInput?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') confirmRename();
     if (e.key === 'Escape') closeRenameModal();
 });
 
-renameModal.addEventListener('click', (e) => {
+renameModal?.addEventListener('click', (e) => {
     if (e.target === renameModal) closeRenameModal();
 });
 
-// --- Delete Modal ---
+// ============================================================================
+// DELETE MODAL
+// ============================================================================
 const deleteModal = document.getElementById('deleteModal');
 const deleteMessage = document.getElementById('deleteMessage');
 let fileToDelete = null;
 
 function showDeleteModal(filename) {
     fileToDelete = filename;
-    deleteMessage.textContent = `"${filename}" will be permanently deleted.`;
-    deleteModal.classList.add('active');
+    if (deleteMessage) {
+        deleteMessage.textContent = `"${filename}" çöp kutusuna taşınacak.`;
+    }
+    deleteModal?.classList.add('active');
 }
 
 window.closeDeleteModal = () => {
-    deleteModal.classList.remove('active');
+    deleteModal?.classList.remove('active');
     fileToDelete = null;
-}
+};
 
 window.confirmDelete = () => {
     if (!fileToDelete) return;
 
-    fetch(`/files/${encodeURIComponent(fileToDelete)}`, { method: 'DELETE' })
+    fetch(`/files/${encodeURIComponent(fileToDelete)}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+    })
         .then(res => {
             if (res.ok) {
-                showToast('File deleted', 'success');
+                showToast('Dosya çöp kutusuna taşındı', 'success');
             } else {
-                showToast('Delete failed', 'error');
+                showToast('Silme başarısız', 'error');
             }
         })
-        .catch(() => showToast('Error deleting file', 'error'))
+        .catch(() => showToast('Dosya silinirken hata oluştu', 'error'))
         .finally(() => closeDeleteModal());
-}
+};
 
-deleteModal.addEventListener('click', (e) => {
+deleteModal?.addEventListener('click', (e) => {
     if (e.target === deleteModal) closeDeleteModal();
 });
 
+// ============================================================================
+// DOWNLOAD
+// ============================================================================
 function downloadFile(name) {
     const link = document.createElement('a');
     link.href = `/download/${encodeURIComponent(name)}`;
@@ -772,114 +1177,113 @@ function downloadFile(name) {
     link.click();
 }
 
-// --- Properties Modal ---
+// ============================================================================
+// PROPERTIES MODAL
+// ============================================================================
 const propertiesModal = document.getElementById('propertiesModal');
-const propName = document.getElementById('propName');
-const propType = document.getElementById('propType');
-const propSize = document.getElementById('propSize');
-const propDate = document.getElementById('propDate');
 
 function showProperties(filename) {
     const file = allFiles.find(f => f.name === filename);
     if (!file) return;
 
-    propName.textContent = file.name;
-    propType.textContent = file.type.charAt(0).toUpperCase() + file.type.slice(1);
-    propSize.textContent = formatSize(file.size);
+    document.getElementById('propName').textContent = file.name;
+    document.getElementById('propType').textContent = (file.type || 'other').charAt(0).toUpperCase() + (file.type || 'other').slice(1);
+    document.getElementById('propSize').textContent = formatSize(file.size);
 
     const date = new Date(file.date);
-    propDate.textContent = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    document.getElementById('propDate').textContent = date.toLocaleDateString('tr-TR') + ' ' + date.toLocaleTimeString('tr-TR');
+
+    // Show additional info if available
+    const propDownloads = document.getElementById('propDownloads');
+    if (propDownloads) {
+        propDownloads.textContent = file.downloadCount || 0;
+    }
 
     contextMenu.style.display = 'none';
-    propertiesModal.classList.add('active');
+    propertiesModal?.classList.add('active');
 }
 
 window.closePropertiesModal = () => {
-    propertiesModal.classList.remove('active');
-}
+    propertiesModal?.classList.remove('active');
+};
 
-propertiesModal.addEventListener('click', (e) => {
+propertiesModal?.addEventListener('click', (e) => {
     if (e.target === propertiesModal) closePropertiesModal();
 });
 
-// --- Keyboard Shortcuts ---
+// ============================================================================
+// KEYBOARD SHORTCUTS
+// ============================================================================
 function setupKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
-        // Don't trigger shortcuts when typing in input
-        if (e.target.tagName === 'INPUT') return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-        // Delete selected files
+        // Delete
         if (e.key === 'Delete' || e.key === 'Backspace') {
             if (selectedFiles.size === 1) {
-                const filename = [...selectedFiles][0];
-                showDeleteModal(filename);
+                showDeleteModal([...selectedFiles][0]);
+            } else if (selectedFiles.size > 1) {
+                bulkDelete();
             }
         }
 
-        // Select all (Ctrl/Cmd + A)
+        // Select all
         if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
             e.preventDefault();
             allFiles.forEach(f => selectedFiles.add(f.name));
             document.querySelectorAll('.file-card').forEach(c => c.classList.add('selected'));
+            updateBulkActions();
         }
 
-        // View toggle (V)
+        // View toggle
         if (e.key === 'v' || e.key === 'V') {
-            viewToggleBtn.click();
+            viewToggleBtn?.click();
         }
 
-        // Focus search (/)
+        // Search focus
         if (e.key === '/') {
             e.preventDefault();
-            searchInput.focus();
+            searchInput?.focus();
         }
 
-        // Escape - close modals and clear selection
+        // Escape
         if (e.key === 'Escape') {
             selectedFiles.clear();
             document.querySelectorAll('.file-card').forEach(c => c.classList.remove('selected'));
+            updateBulkActions();
             closePreviewModal();
             closePropertiesModal();
             closeRenameModal();
             closeDeleteModal();
+            closeShareModal();
+            closeTagModal();
+            closeTrashModal();
+            closeAdminModal();
         }
 
-        // Enter - preview selected file
+        // Enter - preview
         if (e.key === 'Enter' && selectedFiles.size === 1) {
             previewFile([...selectedFiles][0]);
         }
     });
 }
 
-// --- Utilities ---
-function formatSize(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
+// ============================================================================
+// TOAST NOTIFICATIONS
+// ============================================================================
 function showToast(msg, type = 'info') {
     const toast = document.createElement('div');
     toast.className = 'toast';
 
     const iconSvg = type === 'success'
-        ? `<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-           </svg>`
+        ? `<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>`
         : type === 'error'
-            ? `<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-           </svg>`
+            ? `<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>`
             : '';
 
-    toast.innerHTML = `
-        <span class="toast-icon ${type}">${iconSvg}</span>
-        <span>${msg}</span>
-    `;
+    toast.innerHTML = `<span class="toast-icon ${type}">${iconSvg}</span><span>${msg}</span>`;
+    toastContainer?.appendChild(toast);
 
-    toastContainer.appendChild(toast);
     setTimeout(() => {
         toast.style.opacity = '0';
         toast.style.transform = 'translateY(20px)';
@@ -887,7 +1291,563 @@ function showToast(msg, type = 'info') {
     }, 3000);
 }
 
-// --- Lasso Selection (Drag to Select) ---
+// ============================================================================
+// FOLDER NAVIGATION
+// ============================================================================
+window.navigateToFolder = (path) => {
+    currentPath = path;
+    selectedFiles.clear();
+    fetchContents();
+};
+
+function updateBreadcrumbs() {
+    if (!breadcrumbNav) return;
+
+    const existingItems = breadcrumbNav.querySelectorAll('.breadcrumb-item:not(.home)');
+    existingItems.forEach(item => item.remove());
+    
+    const separators = breadcrumbNav.querySelectorAll('.breadcrumb-separator');
+    separators.forEach(sep => sep.remove());
+
+    if (currentPath === '/') {
+        if (sectionTitle) sectionTitle.innerHTML = `Tüm Dosyalar <span class="file-count" id="fileCount">0</span>`;
+        return;
+    }
+
+    const parts = currentPath.replace(/^\//, '').split('/').filter(p => p);
+    let accumulatedPath = '';
+
+    parts.forEach((part, index) => {
+        accumulatedPath += '/' + part;
+        const pathForClick = accumulatedPath;
+
+        const separator = document.createElement('span');
+        separator.className = 'breadcrumb-separator';
+        separator.innerHTML = `<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>`;
+        breadcrumbNav.appendChild(separator);
+
+        const item = document.createElement('div');
+        item.className = 'breadcrumb-item';
+        item.textContent = part;
+        item.onclick = () => navigateToFolder(pathForClick);
+        breadcrumbNav.appendChild(item);
+    });
+
+    const folderName = parts[parts.length - 1] || 'Tüm Dosyalar';
+    if (sectionTitle) sectionTitle.innerHTML = `${folderName} <span class="file-count" id="fileCount">0</span>`;
+}
+
+// ============================================================================
+// GRID CONTEXT MENU
+// ============================================================================
+function setupGridContextMenu() {
+    const mainContent = document.querySelector('.main-content');
+    if (!mainContent) return;
+
+    mainContent.addEventListener('contextmenu', (e) => {
+        const isOnFileCard = e.target.closest('.file-card');
+        if (isOnFileCard) return;
+
+        const isInContentArea = e.target.closest('.content-area') || e.target.closest('.file-grid');
+        if (!isInContentArea) return;
+
+        e.preventDefault();
+        contextMenu.style.display = 'none';
+
+        const menuWidth = 150;
+        const menuHeight = 50;
+        let x = e.pageX;
+        let y = e.pageY;
+
+        if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 10;
+        if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 10;
+
+        gridContextMenu.style.display = 'block';
+        gridContextMenu.style.left = `${x}px`;
+        gridContextMenu.style.top = `${y}px`;
+    });
+
+    document.addEventListener('click', () => {
+        gridContextMenu.style.display = 'none';
+    });
+
+    document.getElementById('ctxCreateFolder')?.addEventListener('click', showCreateFolderModal);
+}
+
+// ============================================================================
+// CREATE FOLDER MODAL
+// ============================================================================
+const createFolderModal = document.getElementById('createFolderModal');
+const folderNameInput = document.getElementById('folderNameInput');
+
+function showCreateFolderModal() {
+    if (folderNameInput) folderNameInput.value = '';
+    createFolderModal?.classList.add('active');
+    setTimeout(() => folderNameInput?.focus(), 100);
+}
+
+window.closeCreateFolderModal = () => {
+    createFolderModal?.classList.remove('active');
+};
+
+window.confirmCreateFolder = () => {
+    const name = folderNameInput?.value.trim();
+    if (!name) {
+        showToast('Klasör adı gerekli', 'error');
+        return;
+    }
+
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+
+    fetch('/folders', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ name, parentPath })
+    })
+        .then(res => {
+            if (res.ok) {
+                closeCreateFolderModal();
+            } else {
+                return res.json().then(data => {
+                    throw new Error(data.error || 'Klasör oluşturulamadı');
+                });
+            }
+        })
+        .catch(err => showToast(err.message, 'error'));
+};
+
+folderNameInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmCreateFolder();
+    if (e.key === 'Escape') closeCreateFolderModal();
+});
+
+createFolderModal?.addEventListener('click', (e) => {
+    if (e.target === createFolderModal) closeCreateFolderModal();
+});
+
+// ============================================================================
+// TRASH MODAL
+// ============================================================================
+window.showTrashModal = async () => {
+    const modal = document.getElementById('trashModal');
+    if (!modal) return;
+
+    try {
+        const res = await fetch('/api/trash', { headers: getAuthHeaders() });
+        if (res.ok) {
+            const items = await res.json();
+            const list = document.getElementById('trashList');
+            
+            if (items.length === 0) {
+                list.innerHTML = '<div class="empty-state"><p>Çöp kutusu boş</p></div>';
+            } else {
+                list.innerHTML = items.map(item => `
+                    <div class="trash-item">
+                        <div class="trash-item-info">
+                            <span class="trash-item-name">${item.originalName}</span>
+                            <span class="trash-item-meta">${formatSize(item.size)} • ${formatDate(item.deletedAt)}</span>
+                        </div>
+                        <div class="trash-item-actions">
+                            <button class="btn-sm btn-primary" onclick="restoreFromTrash('${item.id}')">Geri Yükle</button>
+                            <button class="btn-sm btn-danger" onclick="deleteFromTrash('${item.id}')">Sil</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (e) {
+        showToast('Çöp kutusu yüklenemedi', 'error');
+    }
+
+    modal.classList.add('active');
+};
+
+window.closeTrashModal = () => {
+    document.getElementById('trashModal')?.classList.remove('active');
+};
+
+window.restoreFromTrash = async (id) => {
+    try {
+        const res = await fetch(`/api/trash/${id}/restore`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        if (res.ok) {
+            showToast('Dosya geri yüklendi', 'success');
+            showTrashModal();
+            fetchContents();
+        }
+    } catch (e) {
+        showToast('Geri yükleme başarısız', 'error');
+    }
+};
+
+window.deleteFromTrash = async (id) => {
+    if (!confirm('Bu dosya kalıcı olarak silinecek. Emin misiniz?')) return;
+    
+    try {
+        const res = await fetch(`/api/trash/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+        if (res.ok) {
+            showToast('Dosya kalıcı olarak silindi', 'success');
+            showTrashModal();
+        }
+    } catch (e) {
+        showToast('Silme başarısız', 'error');
+    }
+};
+
+window.emptyTrash = async () => {
+    if (!confirm('Çöp kutusundaki tüm dosyalar kalıcı olarak silinecek. Emin misiniz?')) return;
+    
+    try {
+        const res = await fetch('/api/trash', {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+        if (res.ok) {
+            showToast('Çöp kutusu boşaltıldı', 'success');
+            showTrashModal();
+        }
+    } catch (e) {
+        showToast('İşlem başarısız', 'error');
+    }
+};
+
+// ============================================================================
+// ADMIN MODAL
+// ============================================================================
+window.showAdminModal = async () => {
+    const modal = document.getElementById('adminModal');
+    if (!modal) {
+        showToast('Admin modal bulunamadı', 'error');
+        return;
+    }
+
+    // Show modal first with loading state
+    modal.classList.add('active');
+    
+    // Set loading placeholders
+    const loadingText = '...';
+    document.getElementById('statTotalFiles').textContent = loadingText;
+    document.getElementById('statTotalFolders').textContent = loadingText;
+    document.getElementById('statTotalSize').textContent = loadingText;
+    document.getElementById('statTrashSize').textContent = loadingText;
+    document.getElementById('statActiveShares').textContent = loadingText;
+    document.getElementById('statTodayActivity').textContent = loadingText;
+    document.getElementById('statCpuCores').textContent = loadingText;
+    document.getElementById('statMemoryUsage').textContent = loadingText;
+    document.getElementById('statPlatform').textContent = loadingText;
+    document.getElementById('statUptime').textContent = loadingText;
+
+    try {
+        const res = await fetch('/api/admin/stats', { headers: getAuthHeaders() });
+        if (res.ok) {
+            const stats = await res.json();
+            
+            document.getElementById('statTotalFiles').textContent = stats.files?.total ?? 0;
+            document.getElementById('statTotalFolders').textContent = stats.files?.folders ?? 0;
+            document.getElementById('statTotalSize').textContent = formatSize(stats.files?.totalSize ?? 0);
+            document.getElementById('statTrashSize').textContent = formatSize(stats.files?.trashSize ?? 0);
+            document.getElementById('statActiveShares').textContent = stats.shares ?? 0;
+            document.getElementById('statTodayActivity').textContent = stats.activity?.today ?? 0;
+            document.getElementById('statCpuCores').textContent = stats.system?.cpuCount ?? '-';
+            document.getElementById('statMemoryUsage').textContent = (stats.system?.usedMemoryPercent ?? 0) + '%';
+            document.getElementById('statPlatform').textContent = `${stats.system?.platform ?? '-'} (${stats.system?.arch ?? '-'})`;
+            document.getElementById('statUptime').textContent = formatUptime(stats.system?.uptime ?? 0);
+        } else {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.error || 'İstatistikler yüklenemedi', 'error');
+        }
+    } catch (e) {
+        console.error('Admin stats error:', e);
+        showToast('Sunucuya bağlanılamadı', 'error');
+    }
+};
+
+window.closeAdminModal = () => {
+    document.getElementById('adminModal')?.classList.remove('active');
+};
+
+window.refreshAdminStats = () => {
+    showAdminModal();
+};
+
+window.showAdminTab = async (tab) => {
+    // Update tab buttons
+    document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector(`.admin-tab[data-tab="${tab}"]`)?.classList.add('active');
+    
+    // Hide all tab contents
+    document.querySelectorAll('.admin-tab-content').forEach(c => c.style.display = 'none');
+    
+    // Show selected tab content
+    if (tab === 'stats') {
+        document.getElementById('adminStatsTab').style.display = 'block';
+    } else if (tab === 'activity') {
+        document.getElementById('adminActivityTab').style.display = 'block';
+        await loadActivityLog();
+    } else if (tab === 'settings') {
+        document.getElementById('adminSettingsTab').style.display = 'block';
+        await loadAdminSettings();
+    }
+};
+
+async function loadActivityLog() {
+    const list = document.getElementById('activityList');
+    list.innerHTML = '<p class="text-muted">Yükleniyor...</p>';
+    
+    try {
+        const res = await fetch('/api/admin/activity', { headers: getAuthHeaders() });
+        if (res.ok) {
+            const activities = await res.json();
+            if (activities.length === 0) {
+                list.innerHTML = '<p class="text-muted">Henüz aktivite yok</p>';
+            } else {
+                list.innerHTML = activities.slice(0, 50).map(a => `
+                    <div class="activity-item">
+                        <span class="activity-type">${getActivityIcon(a.action || a.type)}</span>
+                        <div class="activity-info">
+                            <span class="activity-message">${a.details || a.message}</span>
+                            <span class="activity-meta">${a.ip || '-'} • ${a.user || '-'} • ${formatDate(a.timestamp)}</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (e) {
+        list.innerHTML = '<p class="text-muted">Yüklenemedi</p>';
+    }
+}
+
+function getActivityIcon(type) {
+    const icons = {
+        'upload': '📤',
+        'download': '📥',
+        'delete': '🗑️',
+        'rename': '✏️',
+        'move': '📁',
+        'share': '🔗',
+        'share_download': '⬇️',
+        'login': '🔐',
+        'blocked': '🚫'
+    };
+    return icons[type] || '📋';
+}
+
+async function loadAdminSettings() {
+    try {
+        const res = await fetch('/api/admin/settings', { headers: getAuthHeaders() });
+        if (res.ok) {
+            const s = await res.json();
+            document.getElementById('settingAuthEnabled').checked = s.authEnabled || false;
+        }
+    } catch (e) { }
+}
+
+window.updateSetting = async (key, value) => {
+    try {
+        await fetch('/api/admin/settings', {
+            method: 'PUT',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ [key]: value })
+        });
+        showToast('Ayar güncellendi', 'success');
+        
+        if (key === 'authEnabled' && value) {
+            showToast('Kimlik doğrulama aktif edildi. Sayfayı yenileyince giriş yapmanız gerekecek.', 'info');
+        }
+    } catch (e) {
+        showToast('Ayar güncellenemedi', 'error');
+    }
+};
+
+window.changeAdminPassword = async () => {
+    const password = document.getElementById('newAdminPassword').value;
+    if (!password || password.length < 4) {
+        showToast('Şifre en az 4 karakter olmalı', 'error');
+        return;
+    }
+    
+    try {
+        const res = await fetch('/api/admin/change-password', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ password })
+        });
+        
+        if (res.ok) {
+            showToast('Şifre değiştirildi', 'success');
+            document.getElementById('newAdminPassword').value = '';
+        } else {
+            const err = await res.json();
+            showToast(err.error || 'Şifre değiştirilemedi', 'error');
+        }
+    } catch (e) {
+        showToast('Bağlantı hatası', 'error');
+    }
+};
+
+window.clearActivityLog = async () => {
+    if (!confirm('Tüm aktivite logları silinecek. Emin misiniz?')) return;
+    
+    try {
+        await fetch('/api/admin/activity', {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+        showToast('Aktivite logları temizlendi', 'success');
+        loadActivityLog();
+    } catch (e) {
+        showToast('İşlem başarısız', 'error');
+    }
+};
+
+window.cleanupExpiredShares = async () => {
+    try {
+        const res = await fetch('/api/admin/cleanup-shares', {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        const data = await res.json();
+        showToast(`${data.cleaned || 0} süresi dolmuş paylaşım temizlendi`, 'success');
+        showAdminModal(); // Refresh stats
+    } catch (e) {
+        showToast('İşlem başarısız', 'error');
+    }
+};
+
+function formatUptime(seconds) {
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    
+    if (days > 0) return `${days}g ${hours}sa`;
+    if (hours > 0) return `${hours}sa ${mins}dk`;
+    return `${mins}dk`;
+}
+
+// ============================================================================
+// ADVANCED SEARCH
+// ============================================================================
+function setupAdvancedSearch() {
+    const advSearchBtn = document.getElementById('advancedSearchBtn');
+    advSearchBtn?.addEventListener('click', showAdvancedSearchModal);
+}
+
+window.showAdvancedSearchModal = () => {
+    document.getElementById('advancedSearchModal')?.classList.add('active');
+};
+
+window.closeAdvancedSearchModal = () => {
+    document.getElementById('advancedSearchModal')?.classList.remove('active');
+};
+
+window.performAdvancedSearch = async () => {
+    const q = document.getElementById('advSearchQuery')?.value || '';
+    const type = document.getElementById('advSearchType')?.value || '';
+    const minSize = document.getElementById('advSearchMinSize')?.value || '';
+    const maxSize = document.getElementById('advSearchMaxSize')?.value || '';
+    const startDate = document.getElementById('advSearchStartDate')?.value || '';
+    const endDate = document.getElementById('advSearchEndDate')?.value || '';
+
+    const params = new URLSearchParams();
+    if (q) params.append('q', q);
+    if (type) params.append('type', type);
+    if (minSize) params.append('minSize', parseInt(minSize) * 1024 * 1024);
+    if (maxSize) params.append('maxSize', parseInt(maxSize) * 1024 * 1024);
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+
+    try {
+        const res = await fetch(`/api/search?${params}`, { headers: getAuthHeaders() });
+        if (res.ok) {
+            const results = await res.json();
+            allFiles = results;
+            if (sectionTitle) sectionTitle.innerHTML = `Arama Sonuçları <span class="file-count" id="fileCount">${results.length}</span>`;
+            applyFilterAndRender();
+            closeAdvancedSearchModal();
+        }
+    } catch (e) {
+        showToast('Arama başarısız', 'error');
+    }
+};
+
+// ============================================================================
+// DRAG & DROP HANDLERS
+// ============================================================================
+function handleDragStart(e) {
+    const card = e.target.closest('.file-card');
+    const name = card?.getAttribute('data-name');
+    if (name) {
+        e.dataTransfer.setData('text/plain', name);
+        e.dataTransfer.effectAllowed = 'move';
+        card.classList.add('dragging');
+    }
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const card = e.target.closest('.file-card');
+    if (card?.getAttribute('data-isfolder') === 'true') {
+        card.classList.add('drop-target');
+    }
+    return false;
+}
+
+function handleDragLeave(e) {
+    const card = e.target.closest('.file-card');
+    card?.classList.remove('drop-target');
+}
+
+function handleDrop(e) {
+    e.stopPropagation();
+    e.preventDefault();
+
+    const destCard = e.target.closest('.file-card');
+    destCard?.classList.remove('drop-target');
+
+    const sourceName = e.dataTransfer.getData('text/plain');
+    if (!sourceName || !destCard) return;
+
+    const destName = destCard.getAttribute('data-name');
+
+    document.querySelectorAll('.file-card').forEach(c => c.classList.remove('dragging'));
+
+    if (sourceName === destName) return;
+    if (destCard.getAttribute('data-isfolder') !== 'true') return;
+
+    const parent = currentPath === '/' ? '' : currentPath;
+    const sourcePath = parent + '/' + sourceName;
+    const destinationPath = parent + '/' + destName;
+
+    fetch('/move', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ source: sourcePath, destination: destinationPath })
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                showToast(data.error, 'error');
+            } else {
+                showToast('Dosya taşındı', 'success');
+                allFiles = allFiles.filter(f => f.name !== sourceName);
+                document.getElementById('fileCount').textContent = allFiles.length;
+                document.querySelector(`.file-card[data-name="${sourceName}"]`)?.remove();
+            }
+        })
+        .catch(() => showToast('Taşıma işlemi başarısız', 'error'));
+
+    return false;
+}
+
+// ============================================================================
+// LASSO SELECTION
+// ============================================================================
 let isSelecting = false;
 let selectionBox = null;
 let selectionStart = { x: 0, y: 0 };
@@ -895,6 +1855,7 @@ let previouslySelectedFiles = new Set();
 
 function initLassoSelection() {
     const mainContent = document.querySelector('.main-content');
+    if (!mainContent) return;
 
     mainContent.addEventListener('mousedown', handleSelectionStart);
     document.addEventListener('mousemove', handleSelectionMove);
@@ -902,14 +1863,11 @@ function initLassoSelection() {
 }
 
 function handleSelectionStart(e) {
-    // Only handle left mouse button (button 0)
     if (e.button !== 0) return;
 
-    // Don't start selection if clicking on interactive elements
     const isInteractive = e.target.closest('.file-card, .upload-btn, .icon-btn, .sort-btn, .search-bar, .nav-item, .theme-switch, button, input, a, .modal-overlay');
     if (isInteractive) return;
 
-    // Store previously selected files if holding Ctrl/Cmd
     if (e.ctrlKey || e.metaKey) {
         previouslySelectedFiles = new Set(selectedFiles);
     } else {
@@ -921,7 +1879,6 @@ function handleSelectionStart(e) {
     isSelecting = true;
     selectionStart = { x: e.pageX, y: e.pageY };
 
-    // Create selection box
     selectionBox = document.createElement('div');
     selectionBox.className = 'selection-box';
     selectionBox.style.left = e.pageX + 'px';
@@ -937,7 +1894,6 @@ function handleSelectionStart(e) {
 function handleSelectionMove(e) {
     if (!isSelecting || !selectionBox) return;
 
-    // Calculate box dimensions
     const currentX = e.pageX;
     const currentY = e.pageY;
 
@@ -946,24 +1902,15 @@ function handleSelectionMove(e) {
     const width = Math.abs(currentX - selectionStart.x);
     const height = Math.abs(currentY - selectionStart.y);
 
-    // Update selection box position and size
     selectionBox.style.left = left + 'px';
     selectionBox.style.top = top + 'px';
     selectionBox.style.width = width + 'px';
     selectionBox.style.height = height + 'px';
 
-    // Get selection box bounds (in viewport coordinates)
-    const boxRect = {
-        left: left,
-        top: top,
-        right: left + width,
-        bottom: top + height
-    };
+    const boxRect = { left, top, right: left + width, bottom: top + height };
 
-    // Check which file cards intersect with selection box
     document.querySelectorAll('.file-card').forEach(card => {
         const cardRect = card.getBoundingClientRect();
-        // Convert to page coordinates
         const cardPageRect = {
             left: cardRect.left + window.scrollX,
             top: cardRect.top + window.scrollY,
@@ -971,7 +1918,6 @@ function handleSelectionMove(e) {
             bottom: cardRect.bottom + window.scrollY
         };
 
-        // Check intersection
         const intersects = !(
             boxRect.right < cardPageRect.left ||
             boxRect.left > cardPageRect.right ||
@@ -989,9 +1935,11 @@ function handleSelectionMove(e) {
             card.classList.remove('selected');
         }
     });
+
+    updateBulkActions();
 }
 
-function handleSelectionEnd(e) {
+function handleSelectionEnd() {
     if (!isSelecting) return;
 
     isSelecting = false;
@@ -1005,247 +1953,4 @@ function handleSelectionEnd(e) {
     previouslySelectedFiles.clear();
 }
 
-// Initialize lasso selection after DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    initLassoSelection();
-});
-
-// --- Folder Navigation ---
-window.navigateToFolder = (path) => {
-    currentPath = path;
-    selectedFiles.clear();
-    fetchContents();
-}
-
-function updateBreadcrumbs() {
-    // Clear existing breadcrumbs except home
-    const existingItems = breadcrumbNav.querySelectorAll('.breadcrumb-item:not(.home)');
-    existingItems.forEach(item => item.remove());
-
-    // Remove separators
-    const separators = breadcrumbNav.querySelectorAll('.breadcrumb-separator');
-    separators.forEach(sep => sep.remove());
-
-    if (currentPath === '/') {
-        sectionTitle.innerHTML = `All Files <span class="file-count" id="fileCount">0</span>`;
-        return; // Only show home icon at root
-    }
-
-    // Build breadcrumb path
-    const parts = currentPath.replace(/^\//, '').split('/').filter(p => p);
-    let accumulatedPath = '';
-
-    parts.forEach((part, index) => {
-        accumulatedPath += '/' + part;
-        const pathForClick = accumulatedPath;
-
-        // Add separator
-        const separator = document.createElement('span');
-        separator.className = 'breadcrumb-separator';
-        separator.innerHTML = `<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-        </svg>`;
-        breadcrumbNav.appendChild(separator);
-
-        // Add folder item
-        const item = document.createElement('div');
-        item.className = 'breadcrumb-item';
-        item.textContent = part;
-        item.onclick = () => navigateToFolder(pathForClick);
-        breadcrumbNav.appendChild(item);
-    });
-
-    // Update section title
-    const folderName = parts[parts.length - 1] || 'All Files';
-    sectionTitle.innerHTML = `${folderName} <span class="file-count" id="fileCount">0</span>`;
-}
-
-// --- Grid Context Menu (right-click on empty space) ---
-function setupGridContextMenu() {
-    const mainContent = document.querySelector('.main-content');
-
-    mainContent.addEventListener('contextmenu', (e) => {
-        // Check if right-clicked on empty space (not on a file card)
-        const isOnFileCard = e.target.closest('.file-card');
-        if (isOnFileCard) return; // Let file context menu handle this
-
-        // Check if clicked within content area
-        const isInContentArea = e.target.closest('.content-area') ||
-            e.target.closest('.file-grid');
-        if (!isInContentArea) return;
-
-        e.preventDefault();
-
-        // Hide file context menu
-        contextMenu.style.display = 'none';
-
-        // Show grid context menu
-        const menuWidth = 150;
-        const menuHeight = 50;
-
-        let x = e.pageX;
-        let y = e.pageY;
-
-        if (x + menuWidth > window.innerWidth) {
-            x = window.innerWidth - menuWidth - 10;
-        }
-        if (y + menuHeight > window.innerHeight) {
-            y = window.innerHeight - menuHeight - 10;
-        }
-
-        gridContextMenu.style.display = 'block';
-        gridContextMenu.style.left = `${x}px`;
-        gridContextMenu.style.top = `${y}px`;
-    });
-
-    // Hide menu on click
-    document.addEventListener('click', () => {
-        gridContextMenu.style.display = 'none';
-    });
-
-    // Create folder handler
-    document.getElementById('ctxCreateFolder').addEventListener('click', () => {
-        showCreateFolderModal();
-    });
-}
-
-// --- Create Folder Modal ---
-const createFolderModal = document.getElementById('createFolderModal');
-const folderNameInput = document.getElementById('folderNameInput');
-
-function showCreateFolderModal() {
-    folderNameInput.value = '';
-    createFolderModal.classList.add('active');
-    setTimeout(() => folderNameInput.focus(), 100);
-}
-
-window.closeCreateFolderModal = () => {
-    createFolderModal.classList.remove('active');
-}
-
-window.confirmCreateFolder = () => {
-    const name = folderNameInput.value.trim();
-    if (!name) {
-        showToast('Klasör adı gerekli', 'error');
-        return;
-    }
-
-    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
-
-    fetch('/folders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, parentPath })
-    })
-        .then(res => {
-            if (res.ok) {
-                return res.json();
-            } else {
-                return res.json().then(data => {
-                    throw new Error(data.error || 'Klasör oluşturulamadı');
-                });
-            }
-        })
-        .then(data => {
-            closeCreateFolderModal();
-            // Socket event will handle adding to list
-        })
-        .catch(err => showToast(err.message, 'error'));
-}
-
-folderNameInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') confirmCreateFolder();
-    if (e.key === 'Escape') closeCreateFolderModal();
-});
-
-createFolderModal.addEventListener('click', (e) => {
-    if (e.target === createFolderModal) closeCreateFolderModal();
-});
-
-// --- Drag & Drop Handlers ---
-function handleDragStart(e) {
-    const card = e.target.closest('.file-card');
-    const name = card.getAttribute('data-name');
-    e.dataTransfer.setData('text/plain', name);
-    e.dataTransfer.effectAllowed = 'move';
-    card.classList.add('dragging');
-}
-
-function handleDragOver(e) {
-    // Prevent default to allow drop
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-
-    // Add visual feedback
-    const card = e.target.closest('.file-card');
-    if (card && card.getAttribute('data-isfolder') === 'true') {
-        card.classList.add('drop-target');
-    }
-    return false;
-}
-
-function handleDragLeave(e) {
-    const card = e.target.closest('.file-card');
-    if (card) card.classList.remove('drop-target');
-}
-
-function handleDrop(e) {
-    e.stopPropagation();
-    e.preventDefault();
-
-    const destCard = e.target.closest('.file-card');
-    if (destCard) destCard.classList.remove('drop-target');
-
-    // Get source name from dataTransfer
-    const sourceName = e.dataTransfer.getData('text/plain');
-    
-    // If no sourceName, this might be an external file drop - ignore it here
-    if (!sourceName) return;
-    
-    if (!destCard) return;
-
-    const destName = destCard.getAttribute('data-name');
-
-    // Cleanup dragging class from all cards
-    document.querySelectorAll('.file-card').forEach(c => c.classList.remove('dragging'));
-
-    // Validation
-    if (sourceName === destName) return; // Dropped on itself
-    if (destCard.getAttribute('data-isfolder') !== 'true') return; // Dropped on file, not folder
-
-    // Construct paths
-    const parent = currentPath === '/' ? '' : currentPath;
-    const sourcePath = parent + '/' + sourceName;
-    const destinationPath = parent + '/' + destName;
-
-    // Call API
-    fetch('/move', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            source: sourcePath,
-            destination: destinationPath
-        })
-    })
-        .then(res => res.json())
-        .then(data => {
-            if (data.error) {
-                showToast(data.error, 'error');
-            } else {
-                showToast('Dosya taşındı', 'success');
-                // Remove from allFiles array
-                allFiles = allFiles.filter(f => f.name !== sourceName);
-                // Update file count
-                document.getElementById('fileCount').textContent = allFiles.length;
-                // Remove source card from UI
-                const sourceCard = document.querySelector(`.file-card[data-name="${sourceName}"]`);
-                if (sourceCard) sourceCard.remove();
-            }
-        })
-        .catch(err => {
-            showToast('Taşıma işlemi başarısız', 'error');
-            console.error(err);
-        });
-
-    return false;
-}
+document.addEventListener('DOMContentLoaded', initLassoSelection);

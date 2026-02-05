@@ -1,0 +1,42 @@
+{
+  "6c3743ef": {
+    "path": "ubuntu-24.04.3-desktop-amd64.iso",
+    "password": null,
+    "expiresAt": "2026-02-12T18:58:51.278Z",
+    "maxDownloads": null,
+    "downloadCount": 0,
+    "uploadOnly": false,
+    "createdAt": "2026-02-05T18:58:51.278Z",
+    "createdBy": "guest"
+  },
+  "e7100d3f": {
+    "path": "ubuntu-24.04.3-desktop-amd64.iso",
+    "password": null,
+    "expiresAt": "2026-02-12T18:58:57.094Z",
+    "maxDownloads": null,
+    "downloadCount": 0,
+    "uploadOnly": false,
+    "createdAt": "2026-02-05T18:58:57.094Z",
+    "createdBy": "guest"
+  },
+  "6ce1be1f": {
+    "path": "ubuntu-24.04.3-desktop-amd64.iso",
+    "password": null,
+    "expiresAt": "2026-02-12T18:58:57.710Z",
+    "maxDownloads": null,
+    "downloadCount": 0,
+    "uploadOnly": false,
+    "createdAt": "2026-02-05T18:58:57.710Z",
+    "createdBy": "guest"
+  },
+  "46a6adad": {
+    "path": "ubuntu-24.04.3-desktop-amd64.iso",
+    "password": null,
+    "expiresAt": "2026-02-12T18:58:58.011Z",
+    "maxDownloads": null,
+    "downloadCount": 0,
+    "uploadOnly": false,
+    "createdAt": "2026-02-05T18:58:58.011Z",
+    "createdBy": "guest"
+  }
+}
