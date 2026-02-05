@@ -1446,3 +1446,27 @@ body::before {
     background: #dc2626;
     transform: translateY(-1px);
 }
+
+/* Selection Box (Lasso) */
+.selection-box {
+    position: fixed;
+    border: 2px solid var(--accent);
+    background: rgba(139, 92, 246, 0.15);
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 9999;
+    box-shadow: 0 0 10px var(--accent-glow);
+    backdrop-filter: blur(2px);
+}
+
+/* Prevent text selection during drag */
+.selecting {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+.selecting .file-card {
+    transition: none;
+}

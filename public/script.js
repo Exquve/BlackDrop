@@ -769,3 +769,126 @@ function showToast(msg, type = 'info') {
         setTimeout(() => toast.remove(), 300);
     }, 3000);
 }
+
+// --- Lasso Selection (Drag to Select) ---
+let isSelecting = false;
+let selectionBox = null;
+let selectionStart = { x: 0, y: 0 };
+let previouslySelectedFiles = new Set();
+
+function initLassoSelection() {
+    const mainContent = document.querySelector('.main-content');
+    
+    mainContent.addEventListener('mousedown', handleSelectionStart);
+    document.addEventListener('mousemove', handleSelectionMove);
+    document.addEventListener('mouseup', handleSelectionEnd);
+}
+
+function handleSelectionStart(e) {
+    // Only handle left mouse button (button 0)
+    if (e.button !== 0) return;
+    
+    // Don't start selection if clicking on interactive elements
+    const isInteractive = e.target.closest('.file-card, .upload-btn, .icon-btn, .sort-btn, .search-bar, .nav-item, .theme-switch, button, input, a, .modal-overlay');
+    if (isInteractive) return;
+    
+    // Store previously selected files if holding Ctrl/Cmd
+    if (e.ctrlKey || e.metaKey) {
+        previouslySelectedFiles = new Set(selectedFiles);
+    } else {
+        previouslySelectedFiles.clear();
+        selectedFiles.clear();
+        document.querySelectorAll('.file-card').forEach(c => c.classList.remove('selected'));
+    }
+    
+    isSelecting = true;
+    selectionStart = { x: e.pageX, y: e.pageY };
+    
+    // Create selection box
+    selectionBox = document.createElement('div');
+    selectionBox.className = 'selection-box';
+    selectionBox.style.left = e.pageX + 'px';
+    selectionBox.style.top = e.pageY + 'px';
+    selectionBox.style.width = '0px';
+    selectionBox.style.height = '0px';
+    document.body.appendChild(selectionBox);
+    document.body.classList.add('selecting');
+    
+    e.preventDefault();
+}
+
+function handleSelectionMove(e) {
+    if (!isSelecting || !selectionBox) return;
+    
+    // Calculate box dimensions
+    const currentX = e.pageX;
+    const currentY = e.pageY;
+    
+    const left = Math.min(selectionStart.x, currentX);
+    const top = Math.min(selectionStart.y, currentY);
+    const width = Math.abs(currentX - selectionStart.x);
+    const height = Math.abs(currentY - selectionStart.y);
+    
+    // Update selection box position and size
+    selectionBox.style.left = left + 'px';
+    selectionBox.style.top = top + 'px';
+    selectionBox.style.width = width + 'px';
+    selectionBox.style.height = height + 'px';
+    
+    // Get selection box bounds (in viewport coordinates)
+    const boxRect = {
+        left: left,
+        top: top,
+        right: left + width,
+        bottom: top + height
+    };
+    
+    // Check which file cards intersect with selection box
+    document.querySelectorAll('.file-card').forEach(card => {
+        const cardRect = card.getBoundingClientRect();
+        // Convert to page coordinates
+        const cardPageRect = {
+            left: cardRect.left + window.scrollX,
+            top: cardRect.top + window.scrollY,
+            right: cardRect.right + window.scrollX,
+            bottom: cardRect.bottom + window.scrollY
+        };
+        
+        // Check intersection
+        const intersects = !(
+            boxRect.right < cardPageRect.left ||
+            boxRect.left > cardPageRect.right ||
+            boxRect.bottom < cardPageRect.top ||
+            boxRect.top > cardPageRect.bottom
+        );
+        
+        const filename = card.getAttribute('data-filename');
+        
+        if (intersects) {
+            selectedFiles.add(filename);
+            card.classList.add('selected');
+        } else if (!previouslySelectedFiles.has(filename)) {
+            selectedFiles.delete(filename);
+            card.classList.remove('selected');
+        }
+    });
+}
+
+function handleSelectionEnd(e) {
+    if (!isSelecting) return;
+    
+    isSelecting = false;
+    document.body.classList.remove('selecting');
+    
+    if (selectionBox) {
+        selectionBox.remove();
+        selectionBox = null;
+    }
+    
+    previouslySelectedFiles.clear();
+}
+
+// Initialize lasso selection after DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    initLassoSelection();
+});
