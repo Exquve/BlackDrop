@@ -340,7 +340,7 @@ function renderGrid(files) {
             previewHtml = getIconForType(file.type);
         }
 
-        const ext = getFileExtension(file.name);
+        const ext = file.isFolder ? 'FOLDER' : getFileExtension(file.name);
 
         card.innerHTML = `
             <div class="file-checkbox">
@@ -1233,7 +1233,11 @@ function handleDrop(e) {
                 showToast(data.error, 'error');
             } else {
                 showToast('Dosya taşındı', 'success');
-                // Remove source card from UI (Socket will handle sync but this feels faster)
+                // Remove from allFiles array
+                allFiles = allFiles.filter(f => f.name !== sourceName);
+                // Update file count
+                document.getElementById('fileCount').textContent = allFiles.length;
+                // Remove source card from UI
                 const sourceCard = document.querySelector(`.file-card[data-name="${sourceName}"]`);
                 if (sourceCard) sourceCard.remove();
             }
