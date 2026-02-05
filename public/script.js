@@ -969,13 +969,47 @@ async function previewFile(filename) {
     }
 
     if (previewTitle) previewTitle.textContent = file.name;
-    const url = `/download/${encodeURIComponent(filename)}`;
+    
+    // Build URL with parentPath
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+    const url = `/api/download/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}`;
+    const fullUrl = `${window.location.origin}${url}`;
+
+    // Video formats that browsers can't play natively
+    const nonBrowserFormats = ['.mkv', '.avi', '.wmv', '.flv', '.m4v'];
+    const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+    const isNonBrowserVideo = file.type === 'video' && nonBrowserFormats.includes(ext);
 
     // Different previews based on type
     if (file.type === 'image') {
         previewContainer.innerHTML = `<img src="${url}" alt="${file.name}">`;
-    } else if (file.type === 'video') {
+    } else if (file.type === 'video' && !isNonBrowserVideo) {
+        // Browser-playable video (mp4, webm, ogg, mov)
         previewContainer.innerHTML = `<video src="${url}" controls autoplay></video>`;
+    } else if (isNonBrowserVideo) {
+        // Non-browser video - show copyable link for VLC
+        previewContainer.innerHTML = `
+            <div class="vlc-link-container">
+                <div class="vlc-icon">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="64" height="64">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                    </svg>
+                </div>
+                <p class="vlc-message">Bu format tarayıcıda oynatılamıyor. Aşağıdaki linki VLC veya başka bir oynatıcıda açabilirsiniz.</p>
+                <div class="vlc-link-box">
+                    <input type="text" id="vlcLinkInput" class="vlc-link-input" value="${fullUrl}" readonly>
+                    <button class="vlc-copy-btn" onclick="copyVlcLink()">
+                        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                        </svg>
+                        Kopyala
+                    </button>
+                </div>
+                <p class="vlc-hint">💡 VLC'de: Media → Open Network Stream → Linki yapıştır</p>
+            </div>
+        `;
     } else if (file.type === 'audio') {
         previewContainer.innerHTML = `
             <div class="audio-preview">
@@ -991,7 +1025,7 @@ async function previewFile(filename) {
     } else if (file.type === 'code' || file.type === 'markdown') {
         // Fetch and display code with syntax highlighting
         try {
-            const res = await fetch(`/api/preview/${encodeURIComponent(filename)}`, {
+            const res = await fetch(`/api/preview/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}`, {
                 headers: getAuthHeaders()
             });
             if (res.ok) {
@@ -1040,6 +1074,21 @@ function escapeHtml(text) {
 window.closePreviewModal = () => {
     previewModal?.classList.remove('active');
     if (previewContainer) previewContainer.innerHTML = '';
+};
+
+// Copy VLC link function
+window.copyVlcLink = () => {
+    const input = document.getElementById('vlcLinkInput');
+    if (input) {
+        input.select();
+        navigator.clipboard.writeText(input.value).then(() => {
+            showToast('Link kopyalandı!', 'success');
+        }).catch(() => {
+            // Fallback for older browsers
+            document.execCommand('copy');
+            showToast('Link kopyalandı!', 'success');
+        });
+    }
 };
 
 previewModal?.addEventListener('click', (e) => {
