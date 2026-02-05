@@ -7,6 +7,7 @@ let currentSort = 'date';
 let sortAscending = false;
 let selectedFiles = new Set();
 let isListView = false;
+let currentPath = '/';  // Current folder path
 
 // DOM Elements
 const fileGrid = document.getElementById('fileGrid');
@@ -14,6 +15,7 @@ const searchInput = document.getElementById('searchInput');
 const fileInput = document.getElementById('fileInput');
 const dropOverlay = document.getElementById('dropOverlay');
 const contextMenu = document.getElementById('contextMenu');
+const gridContextMenu = document.getElementById('gridContextMenu');
 const toastContainer = document.getElementById('toastContainer');
 const uploadStatus = document.getElementById('uploadStatus');
 const uploadProgress = document.getElementById('uploadProgress');
@@ -24,13 +26,15 @@ const sortMenu = document.getElementById('sortMenu');
 const sortBtn = document.getElementById('sortBtn');
 const sortLabel = document.getElementById('sortLabel');
 const themeSwitch = document.getElementById('themeSwitch');
+const breadcrumbNav = document.getElementById('breadcrumbNav');
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
-    fetchFiles();
+    fetchContents();
     loadTheme();
     updateStorageInfo();
     setupKeyboardShortcuts();
+    setupGridContextMenu();
 });
 
 // --- Theme ---
@@ -77,10 +81,14 @@ function updateStorageInfo() {
 }
 
 // --- Socket.io Events ---
-socket.on('file:uploaded', (file) => {
-    allFiles.unshift(file);
-    applyFilterAndRender();
-    showToast(`File uploaded: ${file.name}`, 'success');
+socket.on('file:uploaded', (data) => {
+    // Only update if we're in the same folder
+    const uploadPath = data.parentPath === '/' ? '/' : '/' + data.parentPath;
+    if (uploadPath === currentPath || (uploadPath === '/' && currentPath === '/')) {
+        allFiles.unshift(data.file);
+        applyFilterAndRender();
+    }
+    showToast(`Dosya yüklendi: ${data.file.name}`, 'success');
     updateStorageInfo();
 });
 
@@ -99,20 +107,43 @@ socket.on('file:renamed', (data) => {
     }
 });
 
-// --- File Fetching ---
-function fetchFiles() {
+socket.on('folder:created', (data) => {
+    const folderPath = data.parentPath === '/' ? '/' : '/' + data.parentPath;
+    if (folderPath === currentPath) {
+        allFiles.unshift(data.folder);
+        applyFilterAndRender();
+    }
+    showToast(`Klasör oluşturuldu: ${data.folder.name}`, 'success');
+});
+
+socket.on('folder:deleted', (data) => {
+    const folderName = data.path.split('/').pop();
+    allFiles = allFiles.filter(f => f.name !== folderName);
+    applyFilterAndRender();
+    updateStorageInfo();
+});
+
+// --- Content Fetching (Folders + Files) ---
+function fetchContents() {
     showLoadingSkeletons();
 
-    fetch('/files')
+    const pathParam = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+    fetch(`/contents?path=${encodeURIComponent(pathParam)}`)
         .then(res => res.json())
         .then(data => {
             allFiles = data;
+            updateBreadcrumbs();
             applyFilterAndRender();
         })
         .catch(err => {
-            showToast('Failed to load files', 'error');
+            showToast('Dosyalar yüklenemedi', 'error');
             fileGrid.innerHTML = '';
         });
+}
+
+// Legacy function for backwards compatibility
+function fetchFiles() {
+    fetchContents();
 }
 
 function showLoadingSkeletons() {
@@ -219,6 +250,10 @@ function applyFilterAndRender() {
 // --- Icons ---
 function getIconForType(type) {
     const icons = {
+        folder: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+        </svg>`,
         video: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
                 d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
@@ -288,6 +323,10 @@ function renderGrid(files) {
     files.forEach((file, index) => {
         const card = document.createElement('div');
         card.className = 'file-card';
+        card.draggable = true; // Enable Drag
+        card.setAttribute('data-name', file.name);
+        card.setAttribute('data-isfolder', file.isFolder);
+
         if (selectedFiles.has(file.name)) {
             card.classList.add('selected');
         }
@@ -345,6 +384,14 @@ function renderGrid(files) {
             }
         });
 
+        // Drag & Drop Events
+        card.addEventListener('dragstart', handleDragStart);
+        if (file.isFolder) {
+            card.addEventListener('dragover', handleDragOver);
+            card.addEventListener('dragleave', handleDragLeave);
+            card.addEventListener('drop', handleDrop);
+        }
+
         fileGrid.appendChild(card);
     });
 }
@@ -390,9 +437,15 @@ fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
 let dragCounter = 0;
 
 document.addEventListener('dragenter', (e) => {
-    e.preventDefault();
-    dragCounter++;
-    dropOverlay.classList.add('active');
+    // Only show overlay if dragging files from outside (not internal file cards)
+    const types = e.dataTransfer.types;
+    const isExternalFile = types.includes('Files') && !types.includes('text/plain');
+    
+    if (isExternalFile) {
+        e.preventDefault();
+        dragCounter++;
+        dropOverlay.classList.add('active');
+    }
 });
 
 document.addEventListener('dragleave', (e) => {
@@ -407,7 +460,10 @@ document.addEventListener('drop', (e) => {
     dragCounter = 0;
     dropOverlay.classList.remove('active');
 
-    if (e.target === dropOverlay || dropOverlay.contains(e.target) || e.target === document.body) {
+    // Only handle file upload if files are being dropped (not internal drag-drop)
+    const isInternalDrag = e.dataTransfer.getData('text/plain');
+    
+    if (!isInternalDrag && (e.target === dropOverlay || dropOverlay.contains(e.target) || e.target === document.body)) {
         handleFiles(e.dataTransfer.files);
     }
 });
@@ -431,7 +487,8 @@ function uploadFile(file) {
     uploadProgress.style.width = '0%';
 
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/upload', true);
+    const parentPathQuery = currentPath === '/' ? '' : `?parentPath=${encodeURIComponent(currentPath)}`;
+    xhr.open('POST', `/upload${parentPathQuery}`, true);
 
     xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
@@ -520,8 +577,18 @@ function previewFile(filename) {
     const file = allFiles.find(f => f.name === filename);
     if (!file) return;
 
+    // Folder navigation
+    if (file.isFolder) {
+        const newPath = currentPath === '/'
+            ? '/' + file.name
+            : currentPath + '/' + file.name;
+        navigateToFolder(newPath);
+        return;
+    }
+
     previewTitle.textContent = file.name;
-    const url = `/download/${encodeURIComponent(filename)}`;
+    const parentPathQuery = currentPath === '/' ? '' : `?parentPath=${encodeURIComponent(currentPath)}`;
+    const url = `/download/${encodeURIComponent(filename)}${parentPathQuery}`;
     const fullUrl = `${window.location.origin}${url}`;
 
     // Video formats that browsers can't play natively
@@ -567,6 +634,10 @@ function previewFile(filename) {
     previewDownloadBtn.onclick = () => downloadFile(filename);
     previewModal.classList.add('active');
 }
+
+// Update Upload Function to support parentPath
+// Note: You need to find where uploadFile is defined and update it.
+// Assuming it's elsewhere in the file, I'll search for it first.
 
 // Copy VLC link function
 window.copyVlcLink = () => {
@@ -938,3 +1009,239 @@ function handleSelectionEnd(e) {
 document.addEventListener('DOMContentLoaded', () => {
     initLassoSelection();
 });
+
+// --- Folder Navigation ---
+window.navigateToFolder = (path) => {
+    currentPath = path;
+    selectedFiles.clear();
+    fetchContents();
+}
+
+function updateBreadcrumbs() {
+    // Clear existing breadcrumbs except home
+    const existingItems = breadcrumbNav.querySelectorAll('.breadcrumb-item:not(.home)');
+    existingItems.forEach(item => item.remove());
+
+    // Remove separators
+    const separators = breadcrumbNav.querySelectorAll('.breadcrumb-separator');
+    separators.forEach(sep => sep.remove());
+
+    if (currentPath === '/') {
+        sectionTitle.innerHTML = `All Files <span class="file-count" id="fileCount">0</span>`;
+        return; // Only show home icon at root
+    }
+
+    // Build breadcrumb path
+    const parts = currentPath.replace(/^\//, '').split('/').filter(p => p);
+    let accumulatedPath = '';
+
+    parts.forEach((part, index) => {
+        accumulatedPath += '/' + part;
+        const pathForClick = accumulatedPath;
+
+        // Add separator
+        const separator = document.createElement('span');
+        separator.className = 'breadcrumb-separator';
+        separator.innerHTML = `<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>`;
+        breadcrumbNav.appendChild(separator);
+
+        // Add folder item
+        const item = document.createElement('div');
+        item.className = 'breadcrumb-item';
+        item.textContent = part;
+        item.onclick = () => navigateToFolder(pathForClick);
+        breadcrumbNav.appendChild(item);
+    });
+
+    // Update section title
+    const folderName = parts[parts.length - 1] || 'All Files';
+    sectionTitle.innerHTML = `${folderName} <span class="file-count" id="fileCount">0</span>`;
+}
+
+// --- Grid Context Menu (right-click on empty space) ---
+function setupGridContextMenu() {
+    const mainContent = document.querySelector('.main-content');
+
+    mainContent.addEventListener('contextmenu', (e) => {
+        // Check if right-clicked on empty space (not on a file card)
+        const isOnFileCard = e.target.closest('.file-card');
+        if (isOnFileCard) return; // Let file context menu handle this
+
+        // Check if clicked within content area
+        const isInContentArea = e.target.closest('.content-area') ||
+            e.target.closest('.file-grid');
+        if (!isInContentArea) return;
+
+        e.preventDefault();
+
+        // Hide file context menu
+        contextMenu.style.display = 'none';
+
+        // Show grid context menu
+        const menuWidth = 150;
+        const menuHeight = 50;
+
+        let x = e.pageX;
+        let y = e.pageY;
+
+        if (x + menuWidth > window.innerWidth) {
+            x = window.innerWidth - menuWidth - 10;
+        }
+        if (y + menuHeight > window.innerHeight) {
+            y = window.innerHeight - menuHeight - 10;
+        }
+
+        gridContextMenu.style.display = 'block';
+        gridContextMenu.style.left = `${x}px`;
+        gridContextMenu.style.top = `${y}px`;
+    });
+
+    // Hide menu on click
+    document.addEventListener('click', () => {
+        gridContextMenu.style.display = 'none';
+    });
+
+    // Create folder handler
+    document.getElementById('ctxCreateFolder').addEventListener('click', () => {
+        showCreateFolderModal();
+    });
+}
+
+// --- Create Folder Modal ---
+const createFolderModal = document.getElementById('createFolderModal');
+const folderNameInput = document.getElementById('folderNameInput');
+
+function showCreateFolderModal() {
+    folderNameInput.value = '';
+    createFolderModal.classList.add('active');
+    setTimeout(() => folderNameInput.focus(), 100);
+}
+
+window.closeCreateFolderModal = () => {
+    createFolderModal.classList.remove('active');
+}
+
+window.confirmCreateFolder = () => {
+    const name = folderNameInput.value.trim();
+    if (!name) {
+        showToast('Klasör adı gerekli', 'error');
+        return;
+    }
+
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+
+    fetch('/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, parentPath })
+    })
+        .then(res => {
+            if (res.ok) {
+                return res.json();
+            } else {
+                return res.json().then(data => {
+                    throw new Error(data.error || 'Klasör oluşturulamadı');
+                });
+            }
+        })
+        .then(data => {
+            closeCreateFolderModal();
+            // Socket event will handle adding to list
+        })
+        .catch(err => showToast(err.message, 'error'));
+}
+
+folderNameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmCreateFolder();
+    if (e.key === 'Escape') closeCreateFolderModal();
+});
+
+createFolderModal.addEventListener('click', (e) => {
+    if (e.target === createFolderModal) closeCreateFolderModal();
+});
+
+// --- Drag & Drop Handlers ---
+function handleDragStart(e) {
+    const card = e.target.closest('.file-card');
+    const name = card.getAttribute('data-name');
+    e.dataTransfer.setData('text/plain', name);
+    e.dataTransfer.effectAllowed = 'move';
+    card.classList.add('dragging');
+}
+
+function handleDragOver(e) {
+    // Prevent default to allow drop
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    // Add visual feedback
+    const card = e.target.closest('.file-card');
+    if (card && card.getAttribute('data-isfolder') === 'true') {
+        card.classList.add('drop-target');
+    }
+    return false;
+}
+
+function handleDragLeave(e) {
+    const card = e.target.closest('.file-card');
+    if (card) card.classList.remove('drop-target');
+}
+
+function handleDrop(e) {
+    e.stopPropagation();
+    e.preventDefault();
+
+    const destCard = e.target.closest('.file-card');
+    if (destCard) destCard.classList.remove('drop-target');
+
+    // Get source name from dataTransfer
+    const sourceName = e.dataTransfer.getData('text/plain');
+    
+    // If no sourceName, this might be an external file drop - ignore it here
+    if (!sourceName) return;
+    
+    if (!destCard) return;
+
+    const destName = destCard.getAttribute('data-name');
+
+    // Cleanup dragging class from all cards
+    document.querySelectorAll('.file-card').forEach(c => c.classList.remove('dragging'));
+
+    // Validation
+    if (sourceName === destName) return; // Dropped on itself
+    if (destCard.getAttribute('data-isfolder') !== 'true') return; // Dropped on file, not folder
+
+    // Construct paths
+    const parent = currentPath === '/' ? '' : currentPath;
+    const sourcePath = parent + '/' + sourceName;
+    const destinationPath = parent + '/' + destName;
+
+    // Call API
+    fetch('/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            source: sourcePath,
+            destination: destinationPath
+        })
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                showToast(data.error, 'error');
+            } else {
+                showToast('Dosya taşındı', 'success');
+                // Remove source card from UI (Socket will handle sync but this feels faster)
+                const sourceCard = document.querySelector(`.file-card[data-name="${sourceName}"]`);
+                if (sourceCard) sourceCard.remove();
+            }
+        })
+        .catch(err => {
+            showToast('Taşıma işlemi başarısız', 'error');
+            console.error(err);
+        });
+
+    return false;
+}

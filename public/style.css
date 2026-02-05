@@ -524,6 +524,61 @@ body::before {
     transform: scale(1.05);
 }
 
+/* Breadcrumb Navigation */
+.breadcrumb-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 0rem;
+    margin-bottom: 0.5rem;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+.breadcrumb-nav::-webkit-scrollbar {
+    height: 4px;
+}
+
+.breadcrumb-nav::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 2px;
+}
+
+.breadcrumb-item {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.5rem;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+}
+
+.breadcrumb-item:hover {
+    background: var(--glass-strong);
+    color: var(--text-primary);
+}
+
+.breadcrumb-item.home {
+    padding: 0.25rem;
+}
+
+.breadcrumb-item.home:hover {
+    color: var(--accent);
+}
+
+.breadcrumb-separator {
+    color: var(--text-tertiary);
+    display: flex;
+    align-items: center;
+}
+
+.breadcrumb-separator svg {
+    width: 14px;
+    height: 14px;
+}
+
 /* Content Area */
 .content-area {
     flex: 1;
@@ -607,6 +662,17 @@ body::before {
 
 .file-card.selected::before {
     opacity: 1;
+}
+
+.file-card.dragging {
+    opacity: 0.4;
+    border: 2px dashed var(--accent);
+}
+
+.file-card.drop-target {
+    border: 2px dashed var(--success);
+    background: rgba(16, 185, 129, 0.1);
+    transform: scale(1.05);
 }
 
 /* Selection Checkbox */
@@ -1447,7 +1513,42 @@ body::before {
     transform: translateY(-1px);
 }
 
-/* Selection Box (Lasso) */
+/* Grid Context Menu */
+#gridContextMenu {
+    display: none;
+    position: fixed;
+    background: rgba(18, 18, 26, 0.95);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    padding: 0.5rem;
+    box-shadow: var(--shadow-lg), 0 0 20px rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+    min-width: 180px;
+}
+
+#gridContextMenu .context-item {
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    border-radius: 0.5rem;
+    transition: all 0.2s;
+}
+
+#gridContextMenu .context-item:hover {
+    background: var(--glass-strong);
+    color: var(--text-primary);
+}
+
+#gridContextMenu .context-item svg {
+    color: var(--accent);
+}
+
+/* Properties Modal Styles */
 .selection-box {
     position: fixed;
     border: 2px solid var(--accent);

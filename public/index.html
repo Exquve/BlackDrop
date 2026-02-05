@@ -157,6 +157,15 @@
         </div>
 
         <div class="content-area">
+            <!-- Breadcrumb Navigation -->
+            <nav class="breadcrumb-nav" id="breadcrumbNav">
+                <div class="breadcrumb-item home" onclick="navigateToFolder('/')">
+                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                    </svg>
+                </div>
+            </nav>
             <div class="section-header">
                 <h2 class="section-title" id="sectionTitle">
                     All Files
@@ -225,6 +234,41 @@
                 </path>
             </svg>
             Delete
+        </div>
+    </div>
+
+    <!-- Grid Context Menu (for empty space right-click) -->
+    <div id="gridContextMenu">
+        <div class="context-item" id="ctxCreateFolder">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z">
+                </path>
+            </svg>
+            Yeni Klasör
+        </div>
+    </div>
+
+    <!-- Create Folder Modal -->
+    <div id="createFolderModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Yeni Klasör</h3>
+                <button class="close-btn" onclick="closeCreateFolderModal()">
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                        </path>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="folderNameInput" class="search-bar" style="width: 100%; padding-left: 1rem;"
+                    placeholder="Klasör adı">
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeCreateFolderModal()">İptal</button>
+                <button class="btn-primary" onclick="confirmCreateFolder()">Oluştur</button>
+            </div>
         </div>
     </div>
 

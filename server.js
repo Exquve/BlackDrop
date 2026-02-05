@@ -60,19 +60,33 @@ if (!fs.existsSync(uploadDir)) {
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, uploadDir);
+        // Support uploading to subfolders
+        const parentPath = (req.query.parentPath || '').replace(/^\/+/, '').replace(/\.\./g, '');
+        const targetDir = path.join(uploadDir, parentPath);
+
+        // Create directory if it doesn't exist
+        if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+        }
+
+        // Store the parent path for later use
+        req.uploadParentPath = parentPath;
+        cb(null, targetDir);
     },
     filename: (req, file, cb) => {
+        const parentPath = (req.query.parentPath || '').replace(/^\/+/, '').replace(/\.\./g, '');
+        const targetDir = path.join(uploadDir, parentPath);
+
         // Handle duplicate filenames
         let filename = file.originalname;
-        let filePath = path.join(uploadDir, filename);
+        let filePath = path.join(targetDir, filename);
         let counter = 1;
 
         while (fs.existsSync(filePath)) {
             const ext = path.extname(file.originalname);
             const name = path.basename(file.originalname, ext);
             filename = `${name} (${counter})${ext}`;
-            filePath = path.join(uploadDir, filename);
+            filePath = path.join(targetDir, filename);
             counter++;
         }
 
@@ -124,18 +138,20 @@ app.post('/upload', upload.single('file'), (req, res) => {
         return res.status(400).json({ error: 'No file uploaded' });
     }
 
+    const parentPath = req.uploadParentPath || '';
     const fileData = {
         name: req.file.filename,
         size: req.file.size,
         date: new Date(),
-        type: getFileType(req.file.filename)
+        type: getFileType(req.file.filename),
+        isFolder: false
     };
 
-    // Emit real-time event
-    io.emit('file:uploaded', fileData);
+    // Emit real-time event with parent path
+    io.emit('file:uploaded', { file: fileData, parentPath: parentPath || '/' });
 
-    console.log(`📤 ${req.clientIp} uploaded: ${req.file.filename} (${formatBytes(req.file.size)})`);
-    res.json({ message: 'File uploaded successfully', filename: req.file.filename });
+    console.log(`📤 ${req.clientIp} uploaded: ${parentPath ? parentPath + '/' : ''}${req.file.filename} (${formatBytes(req.file.size)})`);
+    res.json({ message: 'File uploaded successfully', filename: req.file.filename, parentPath: parentPath });
 });
 
 // 2. List Files
@@ -254,7 +270,7 @@ app.put('/files/:filename', (req, res) => {
 
 // 6. Storage Info
 app.get('/storage', (req, res) => {
-    const used = getDirectorySize(uploadDir);
+    const used = getDirectorySizeRecursive(uploadDir);
 
     // Get disk info - use a reasonable default for total storage display
     // In a real app, you might want to set a quota
@@ -265,6 +281,187 @@ app.get('/storage', (req, res) => {
         total: totalQuota,
         free: totalQuota - used
     });
+});
+
+// Helper to get directory size recursively
+function getDirectorySizeRecursive(dirPath) {
+    let totalSize = 0;
+    try {
+        const items = fs.readdirSync(dirPath);
+        for (const item of items) {
+            const itemPath = path.join(dirPath, item);
+            const stats = fs.statSync(itemPath);
+            if (stats.isFile()) {
+                totalSize += stats.size;
+            } else if (stats.isDirectory()) {
+                totalSize += getDirectorySizeRecursive(itemPath);
+            }
+        }
+    } catch (e) {
+        console.error('Error calculating directory size:', e);
+    }
+    return totalSize;
+}
+
+// Helper to safely resolve path within uploads directory
+function safeResolvePath(relativePath) {
+    // Normalize and remove leading slashes
+    const cleanPath = (relativePath || '').replace(/^\/+/, '').replace(/\.\./g, '');
+    const resolved = path.join(uploadDir, cleanPath);
+
+    // Ensure the resolved path is within uploadDir
+    if (!resolved.startsWith(uploadDir)) {
+        return null;
+    }
+    return resolved;
+}
+
+// 7. List Folder Contents
+app.get('/contents', (req, res) => {
+    const folderPath = safeResolvePath(req.query.path || '');
+
+    if (!folderPath) {
+        return res.status(400).json({ error: 'Invalid path' });
+    }
+
+    if (!fs.existsSync(folderPath)) {
+        return res.status(404).json({ error: 'Folder not found' });
+    }
+
+    try {
+        const items = fs.readdirSync(folderPath);
+        const contents = items
+            .filter(item => !item.startsWith('.'))
+            .map(item => {
+                const itemPath = path.join(folderPath, item);
+                try {
+                    const stats = fs.statSync(itemPath);
+                    const isFolder = stats.isDirectory();
+                    return {
+                        name: item,
+                        isFolder: isFolder,
+                        size: isFolder ? getDirectorySizeRecursive(itemPath) : stats.size,
+                        date: stats.mtime,
+                        type: isFolder ? 'folder' : getFileType(item),
+                        itemCount: isFolder ? fs.readdirSync(itemPath).filter(f => !f.startsWith('.')).length : 0
+                    };
+                } catch (e) {
+                    return null;
+                }
+            })
+            .filter(item => item !== null);
+
+        // Sort: folders first, then by date
+        contents.sort((a, b) => {
+            if (a.isFolder && !b.isFolder) return -1;
+            if (!a.isFolder && b.isFolder) return 1;
+            return new Date(b.date) - new Date(a.date);
+        });
+
+        res.json(contents);
+    } catch (e) {
+        res.status(500).json({ error: 'Unable to read folder' });
+    }
+});
+
+// 8. Create Folder
+app.post('/folders', (req, res) => {
+    const { name, parentPath } = req.body;
+
+    if (!name || typeof name !== 'string') {
+        return res.status(400).json({ error: 'Folder name is required' });
+    }
+
+    // Validate folder name
+    if (name.includes('/') || name.includes('\\') || name.includes('..')) {
+        return res.status(400).json({ error: 'Invalid folder name' });
+    }
+
+    const parentDir = safeResolvePath(parentPath || '');
+    if (!parentDir) {
+        return res.status(400).json({ error: 'Invalid parent path' });
+    }
+
+    const newFolderPath = path.join(parentDir, name);
+
+    if (fs.existsSync(newFolderPath)) {
+        return res.status(400).json({ error: 'A folder with this name already exists' });
+    }
+
+    try {
+        fs.mkdirSync(newFolderPath, { recursive: true });
+
+        const stats = fs.statSync(newFolderPath);
+        const folderData = {
+            name: name,
+            isFolder: true,
+            size: 0,
+            date: stats.mtime,
+            type: 'folder',
+            itemCount: 0
+        };
+
+        io.emit('folder:created', { folder: folderData, parentPath: parentPath || '/' });
+        console.log(`📁 ${req.clientIp} created folder: ${name}`);
+        res.json({ message: 'Folder created', folder: folderData });
+    } catch (e) {
+        res.status(500).json({ error: 'Could not create folder' });
+    }
+});
+
+// 9. Delete Folder
+app.delete('/folders/*', (req, res) => {
+    const folderRelPath = req.params[0];
+    const folderPath = safeResolvePath(folderRelPath);
+
+    if (!folderPath || folderPath === uploadDir) {
+        return res.status(400).json({ error: 'Invalid folder path' });
+    }
+
+    if (!fs.existsSync(folderPath)) {
+        return res.status(404).json({ error: 'Folder not found' });
+    }
+
+    try {
+        fs.rmSync(folderPath, { recursive: true, force: true });
+        io.emit('folder:deleted', { path: folderRelPath });
+        console.log(`🗑️  ${req.clientIp} deleted folder: ${folderRelPath}`);
+        res.json({ message: 'Folder deleted' });
+    } catch (e) {
+        res.status(500).json({ error: 'Could not delete folder' });
+    }
+});
+
+// 10. Move Item (file or folder)
+app.post('/move', (req, res) => {
+    const { source, destination, name } = req.body;
+
+    const sourcePath = safeResolvePath(source);
+    const destDir = safeResolvePath(destination || '');
+
+    if (!sourcePath || !destDir) {
+        return res.status(400).json({ error: 'Invalid path' });
+    }
+
+    if (!fs.existsSync(sourcePath)) {
+        return res.status(404).json({ error: 'Source not found' });
+    }
+
+    const itemName = name || path.basename(sourcePath);
+    const destPath = path.join(destDir, itemName);
+
+    if (fs.existsSync(destPath)) {
+        return res.status(400).json({ error: 'An item with this name already exists at destination' });
+    }
+
+    try {
+        fs.renameSync(sourcePath, destPath);
+        io.emit('item:moved', { source, destination, name: itemName });
+        console.log(`📦 ${req.clientIp} moved: ${source} → ${destination}/${itemName}`);
+        res.json({ message: 'Item moved' });
+    } catch (e) {
+        res.status(500).json({ error: 'Could not move item' });
+    }
 });
 
 // Helper function for logging
