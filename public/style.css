@@ -1470,3 +1470,80 @@ body::before {
 .selecting .file-card {
     transition: none;
 }
+
+/* VLC Link Container */
+.vlc-link-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem;
+    text-align: center;
+    gap: 1rem;
+}
+
+.vlc-icon {
+    color: var(--accent);
+    opacity: 0.8;
+}
+
+.vlc-message {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    max-width: 400px;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.vlc-link-box {
+    display: flex;
+    gap: 0.5rem;
+    width: 100%;
+    max-width: 500px;
+}
+
+.vlc-link-input {
+    flex: 1;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+    outline: none;
+}
+
+.vlc-link-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.vlc-copy-btn {
+    background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+    border: none;
+    color: white;
+    padding: 0.75rem 1.25rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.vlc-copy-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px var(--accent-glow);
+}
+
+.vlc-copy-btn:active {
+    transform: translateY(0);
+}
+
+.vlc-hint {
+    color: var(--text-tertiary);
+    font-size: 0.8rem;
+    margin: 0.5rem 0 0 0;
+}
