@@ -215,7 +215,7 @@ function fetchContents() {
     showLoadingSkeletons();
     const pathParam = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
     
-    fetch(`/contents?path=${encodeURIComponent(pathParam)}`, {
+    fetch(`/api/contents?path=${encodeURIComponent(pathParam)}`, {
         headers: getAuthHeaders()
     })
         .then(res => {
@@ -594,18 +594,7 @@ function updateBulkActions() {
 
 window.bulkDelete = async () => {
     if (selectedFiles.size === 0) return;
-    if (!confirm(`${selectedFiles.size} öğeyi silmek istediğinizden emin misiniz?`)) return;
-
-    for (const name of selectedFiles) {
-        await fetch(`/files/${encodeURIComponent(name)}`, {
-            method: 'DELETE',
-            headers: getAuthHeaders()
-        });
-    }
-    selectedFiles.clear();
-    updateBulkActions();
-    fetchContents();
-    showToast('Dosyalar silindi', 'success');
+    showBulkDeleteModal();
 };
 
 window.bulkDownloadZip = async () => {
@@ -1131,11 +1120,22 @@ renameModal?.addEventListener('click', (e) => {
 const deleteModal = document.getElementById('deleteModal');
 const deleteMessage = document.getElementById('deleteMessage');
 let fileToDelete = null;
+let bulkDeleteMode = false;
 
 function showDeleteModal(filename) {
     fileToDelete = filename;
+    bulkDeleteMode = false;
     if (deleteMessage) {
         deleteMessage.textContent = `"${filename}" çöp kutusuna taşınacak.`;
+    }
+    deleteModal?.classList.add('active');
+}
+
+function showBulkDeleteModal() {
+    bulkDeleteMode = true;
+    fileToDelete = null;
+    if (deleteMessage) {
+        deleteMessage.textContent = `${selectedFiles.size} öğe çöp kutusuna taşınacak.`;
     }
     deleteModal?.classList.add('active');
 }
@@ -1143,18 +1143,42 @@ function showDeleteModal(filename) {
 window.closeDeleteModal = () => {
     deleteModal?.classList.remove('active');
     fileToDelete = null;
+    bulkDeleteMode = false;
 };
 
-window.confirmDelete = () => {
+window.confirmDelete = async () => {
+    if (bulkDeleteMode) {
+        // Bulk delete
+        const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+        
+        for (const name of selectedFiles) {
+            await fetch(`/api/files/${encodeURIComponent(name)}?parentPath=${encodeURIComponent(parentPath)}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
+        }
+        selectedFiles.clear();
+        updateBulkActions();
+        fetchContents();
+        showToast('Dosyalar çöp kutusuna taşındı', 'success');
+        closeDeleteModal();
+        return;
+    }
+    
+    // Single file delete
     if (!fileToDelete) return;
+    
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+    const url = `/api/files/${encodeURIComponent(fileToDelete)}?parentPath=${encodeURIComponent(parentPath)}`;
 
-    fetch(`/files/${encodeURIComponent(fileToDelete)}`, {
+    fetch(url, {
         method: 'DELETE',
         headers: getAuthHeaders()
     })
         .then(res => {
             if (res.ok) {
                 showToast('Dosya çöp kutusuna taşındı', 'success');
+                fetchContents();
             } else {
                 showToast('Silme başarısız', 'error');
             }
