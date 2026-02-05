@@ -36,20 +36,47 @@
             display: flex;
             align-items: center;
             gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent) 0%, #6366f1 50%, #a855f7 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         
         .admin-logo h1 {
-            font-size: 1.25rem;
+            font-size: 1.5rem;
+            font-weight: 800;
             margin: 0;
-            color: var(--text-primary);
+            background: linear-gradient(135deg, var(--accent) 0%, #6366f1 50%, #a855f7 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         
-        .admin-logo span {
-            font-size: 0.75rem;
+        .admin-logo svg {
+            color: var(--accent);
+            filter: drop-shadow(0 0 10px rgba(138, 92, 246, 0.4));
+            animation: logoFloat 3s ease-in-out infinite;
+            min-width: 32px;
+            min-height: 32px;
+            flex-shrink: 0;
+        }
+        
+        @keyframes logoFloat {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-3px); }
+        }
+        
+        .admin-badge {
+            font-size: 0.65rem;
             background: var(--accent);
             color: white;
             padding: 0.2rem 0.5rem;
             border-radius: 0.25rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            -webkit-text-fill-color: white;
         }
         
         .admin-nav {
@@ -526,6 +553,128 @@
             color: #ef4444;
         }
         
+        /* Storage Locations */
+        .storage-locations-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        
+        .storage-location-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.25rem;
+            background: var(--bg-tertiary);
+            border-radius: 0.75rem;
+            border: 1px solid var(--border);
+            transition: all 0.2s ease;
+        }
+        
+        .storage-location-item:hover {
+            border-color: var(--accent);
+        }
+        
+        .storage-location-item.default {
+            border-color: var(--accent);
+            background: rgba(138, 92, 246, 0.1);
+        }
+        
+        .storage-location-item.disabled {
+            opacity: 0.6;
+        }
+        
+        .storage-location-info {
+            flex: 1;
+        }
+        
+        .storage-location-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.25rem;
+        }
+        
+        .storage-location-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .storage-location-path {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            word-break: break-all;
+        }
+        
+        .storage-location-stats {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+        }
+        
+        .storage-location-actions {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        
+        .badge {
+            font-size: 0.65rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 0.25rem;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+        
+        .badge-primary {
+            background: var(--accent);
+            color: white;
+        }
+        
+        .badge-secondary {
+            background: var(--text-tertiary);
+            color: var(--bg-primary);
+        }
+        
+        .btn-sm {
+            padding: 0.4rem 0.6rem;
+            font-size: 0.8rem;
+        }
+        
+        .btn-warning {
+            background: #f59e0b;
+            color: white;
+        }
+        
+        .btn-warning:hover {
+            background: #d97706;
+        }
+        
+        .btn-success {
+            background: #22c55e;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #16a34a;
+        }
+        
+        .empty-state, .error-state {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-secondary);
+        }
+        
+        .error-state {
+            color: #ef4444;
+        }
+
         /* Toast */
         .toast-container {
             position: fixed;
@@ -602,9 +751,18 @@
     <!-- Sidebar -->
     <aside class="admin-sidebar">
         <div class="admin-logo">
-            <span style="font-size: 1.5rem;">⚡</span>
+            <svg width="32" height="32" viewBox="0 0 24 24">
+                <defs>
+                    <linearGradient id="brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#8b5cf6" />
+                        <stop offset="100%" style="stop-color:#6366f1" />
+                    </linearGradient>
+                </defs>
+                <path fill="url(#brandGradient)"
+                    d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" />
+            </svg>
             <h1>BlackDrop</h1>
-            <span>Admin</span>
+            <span class="admin-badge">Admin</span>
         </div>
         
         <nav class="admin-nav">
@@ -853,7 +1011,7 @@
         <div id="storage" class="admin-content">
             <div class="admin-header">
                 <h2>💾 Depolama Yönetimi</h2>
-                <p>Disk kullanımı ve temizlik</p>
+                <p>Disk kullanımı, depolama konumları ve temizlik</p>
             </div>
             
             <div class="stats-grid">
@@ -873,11 +1031,54 @@
                 </div>
             </div>
             
+            <!-- Storage Locations -->
+            <div class="admin-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3>📂 Depolama Konumları</h3>
+                    <button class="btn btn-primary" onclick="showAddStorageModal()">➕ Konum Ekle</button>
+                </div>
+                <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                    Birden fazla disk veya klasör ekleyerek depolama alanınızı genişletin. 
+                    Varsayılan konum dosyaların yükleneceği ana yerdir.
+                </p>
+                <div id="storageLocationsList" class="storage-locations-list">
+                    <div class="loading">Yükleniyor...</div>
+                </div>
+            </div>
+            
             <div class="admin-card">
                 <h3>🧹 Temizlik İşlemleri</h3>
                 <div class="btn-group" style="margin-top: 1rem;">
                     <button class="btn btn-danger" onclick="emptyTrash()">🗑️ Çöp Kutusunu Boşalt</button>
                     <button class="btn btn-secondary" onclick="cleanupExpiredShares()">🔗 Süresi Dolmuş Paylaşımları Sil</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Add Storage Location Modal -->
+        <div id="addStorageModal" class="modal">
+            <div class="modal-content" style="max-width: 500px;">
+                <div class="modal-header">
+                    <h3>📂 Yeni Depolama Konumu Ekle</h3>
+                    <button class="modal-close" onclick="closeAddStorageModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Konum Adı</label>
+                        <input type="text" id="storageLocationName" class="form-input" placeholder="Örn: Harici Disk, SSD, NAS">
+                    </div>
+                    <div class="form-group">
+                        <label>Klasör Yolu</label>
+                        <input type="text" id="storageLocationPath" class="form-input" placeholder="/Volumes/MyDisk/BlackDrop">
+                        <small style="color: var(--text-secondary);">
+                            macOS'ta harici diskler genelde <code>/Volumes/DiskAdı</code> altında bulunur.
+                            Klasör yoksa otomatik oluşturulur.
+                        </small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeAddStorageModal()">İptal</button>
+                    <button class="btn btn-primary" onclick="addStorageLocation()">Ekle</button>
                 </div>
             </div>
         </div>
@@ -1268,8 +1469,159 @@
                     document.getElementById('storageUsed').textContent = formatSize(stats.files?.totalSize ?? 0);
                     document.getElementById('storageTrash').textContent = formatSize(stats.files?.trashSize ?? 0);
                 }
+                // Load storage locations
+                await loadStorageLocations();
             } catch (e) {
                 console.error('Storage info load error:', e);
+            }
+        }
+        
+        async function loadStorageLocations() {
+            const container = document.getElementById('storageLocationsList');
+            try {
+                const res = await fetch('/api/admin/storage-locations', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const locations = await res.json();
+                    
+                    if (locations.length === 0) {
+                        container.innerHTML = '<div class="empty-state">Henüz depolama konumu eklenmemiş</div>';
+                        return;
+                    }
+                    
+                    container.innerHTML = locations.map(loc => `
+                        <div class="storage-location-item ${loc.isDefault ? 'default' : ''} ${!loc.enabled ? 'disabled' : ''}">
+                            <div class="storage-location-info">
+                                <div class="storage-location-header">
+                                    <span class="storage-location-name">
+                                        ${loc.isDefault ? '⭐ ' : ''}${loc.name}
+                                        ${loc.isDefault ? '<span class="badge badge-primary">Varsayılan</span>' : ''}
+                                        ${!loc.enabled ? '<span class="badge badge-secondary">Devre Dışı</span>' : ''}
+                                    </span>
+                                </div>
+                                <div class="storage-location-path">${loc.path}</div>
+                                <div class="storage-location-stats">
+                                    <span>BlackDrop: ${formatSize(loc.diskInfo?.usedByBlackDrop || 0)}</span>
+                                    ${loc.diskInfo?.total ? `<span>Disk: ${formatSize(loc.diskInfo.used || 0)} / ${formatSize(loc.diskInfo.total || 0)}</span>` : ''}
+                                </div>
+                            </div>
+                            <div class="storage-location-actions">
+                                ${!loc.isDefault ? `
+                                    <button class="btn btn-sm btn-secondary" onclick="setDefaultStorage('${loc.id}')" title="Varsayılan Yap">⭐</button>
+                                    <button class="btn btn-sm ${loc.enabled ? 'btn-warning' : 'btn-success'}" onclick="toggleStorageLocation('${loc.id}', ${!loc.enabled})" title="${loc.enabled ? 'Devre Dışı Bırak' : 'Etkinleştir'}">
+                                        ${loc.enabled ? '⏸️' : '▶️'}
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteStorageLocation('${loc.id}', '${loc.name}')" title="Sil">🗑️</button>
+                                ` : `
+                                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Ana konum silinemez</span>
+                                `}
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (e) {
+                console.error('Storage locations load error:', e);
+                container.innerHTML = '<div class="error-state">Depolama konumları yüklenemedi</div>';
+            }
+        }
+        
+        function showAddStorageModal() {
+            document.getElementById('storageLocationName').value = '';
+            document.getElementById('storageLocationPath').value = '';
+            document.getElementById('addStorageModal').classList.add('active');
+        }
+        
+        function closeAddStorageModal() {
+            document.getElementById('addStorageModal').classList.remove('active');
+        }
+        
+        async function addStorageLocation() {
+            const name = document.getElementById('storageLocationName').value.trim();
+            const path = document.getElementById('storageLocationPath').value.trim();
+            
+            if (!name || !path) {
+                showToast('Ad ve yol gerekli', 'error');
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/admin/storage-locations', {
+                    method: 'POST',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, path })
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    showToast('Depolama konumu eklendi', 'success');
+                    closeAddStorageModal();
+                    loadStorageLocations();
+                } else {
+                    showToast(data.error || 'Hata oluştu', 'error');
+                }
+            } catch (e) {
+                showToast('Bağlantı hatası', 'error');
+            }
+        }
+        
+        async function setDefaultStorage(id) {
+            try {
+                const res = await fetch(`/api/admin/storage-locations/${id}`, {
+                    method: 'PUT',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ isDefault: true })
+                });
+                
+                if (res.ok) {
+                    showToast('Varsayılan depolama konumu güncellendi', 'success');
+                    loadStorageLocations();
+                } else {
+                    const data = await res.json();
+                    showToast(data.error || 'Hata oluştu', 'error');
+                }
+            } catch (e) {
+                showToast('Bağlantı hatası', 'error');
+            }
+        }
+        
+        async function toggleStorageLocation(id, enabled) {
+            try {
+                const res = await fetch(`/api/admin/storage-locations/${id}`, {
+                    method: 'PUT',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled })
+                });
+                
+                if (res.ok) {
+                    showToast(`Depolama konumu ${enabled ? 'etkinleştirildi' : 'devre dışı bırakıldı'}`, 'success');
+                    loadStorageLocations();
+                } else {
+                    const data = await res.json();
+                    showToast(data.error || 'Hata oluştu', 'error');
+                }
+            } catch (e) {
+                showToast('Bağlantı hatası', 'error');
+            }
+        }
+        
+        async function deleteStorageLocation(id, name) {
+            if (!confirm(`"${name}" depolama konumu silinecek. Dikkat: İçindeki dosyalar silinmez, sadece BlackDrop'tan kaldırılır. Emin misiniz?`)) return;
+            
+            try {
+                const res = await fetch(`/api/admin/storage-locations/${id}`, {
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
+                });
+                
+                if (res.ok) {
+                    showToast('Depolama konumu kaldırıldı', 'success');
+                    loadStorageLocations();
+                } else {
+                    const data = await res.json();
+                    showToast(data.error || 'Hata oluştu', 'error');
+                }
+            } catch (e) {
+                showToast('Bağlantı hatası', 'error');
             }
         }
         

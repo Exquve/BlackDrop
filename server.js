@@ -53,7 +53,8 @@ const DATA_FILES = {
     activity: path.join(CONFIG.DATA_DIR, 'activity.json'),
     downloads: path.join(CONFIG.DATA_DIR, 'downloads.json'),
     ipConfig: path.join(CONFIG.DATA_DIR, 'ip-config.json'),
-    settings: path.join(CONFIG.DATA_DIR, 'settings.json')
+    settings: path.join(CONFIG.DATA_DIR, 'settings.json'),
+    storageLocations: path.join(CONFIG.DATA_DIR, 'storage-locations.json')
 };
 
 // Initialize data files
@@ -82,6 +83,9 @@ let activityLog = loadData(DATA_FILES.activity, []);
 let downloadCounts = loadData(DATA_FILES.downloads, {});
 let ipConfig = loadData(DATA_FILES.ipConfig, { whitelist: [], blacklist: [], mode: 'none' });
 let settings = loadData(DATA_FILES.settings, { authEnabled: false, notificationsEnabled: false });
+let storageLocations = loadData(DATA_FILES.storageLocations, [
+    { id: 'default', name: 'Ana Depolama', path: CONFIG.UPLOAD_DIR, enabled: true, isDefault: true }
+]);
 
 // Cache for thumbnails
 const thumbnailCache = new NodeCache({ stdTTL: 3600, checkperiod: 600 });
@@ -97,6 +101,7 @@ setInterval(() => {
     saveData(DATA_FILES.downloads, downloadCounts);
     saveData(DATA_FILES.ipConfig, ipConfig);
     saveData(DATA_FILES.settings, settings);
+    saveData(DATA_FILES.storageLocations, storageLocations);
 }, 60000); // Every minute
 
 // ============================================================================
@@ -1623,6 +1628,142 @@ app.delete('/api/admin/ip/blacklist', authenticateToken, (req, res) => {
         logActivity('settings', `Removed ${ip} from blacklist`, req.clientIp, req.user?.username);
     }
     res.json({ message: 'IP removed from blacklist' });
+});
+
+// ============================================================================
+// STORAGE LOCATIONS MANAGEMENT
+// ============================================================================
+
+// Get all storage locations
+app.get('/api/admin/storage-locations', authenticateToken, (req, res) => {
+    // Add disk info for each location
+    const locationsWithInfo = storageLocations.map(loc => {
+        let diskInfo = { total: 0, free: 0, used: 0 };
+        try {
+            if (fs.existsSync(loc.path)) {
+                // Get disk usage for the path
+                const stats = fs.statfsSync ? fs.statfsSync(loc.path) : null;
+                if (stats) {
+                    diskInfo.total = stats.blocks * stats.bsize;
+                    diskInfo.free = stats.bfree * stats.bsize;
+                    diskInfo.used = diskInfo.total - diskInfo.free;
+                }
+                // Calculate used space in this location
+                diskInfo.usedByBlackDrop = getDirectorySizeRecursive(loc.path);
+            }
+        } catch (e) {
+            console.error('Error getting disk info:', e);
+        }
+        return { ...loc, diskInfo };
+    });
+    res.json(locationsWithInfo);
+});
+
+// Add new storage location
+app.post('/api/admin/storage-locations', authenticateToken, (req, res) => {
+    const { name, path: locationPath } = req.body;
+    
+    if (!name || !locationPath) {
+        return res.status(400).json({ error: 'Name and path are required' });
+    }
+    
+    // Validate path exists or can be created
+    const resolvedPath = path.resolve(locationPath);
+    
+    try {
+        if (!fs.existsSync(resolvedPath)) {
+            fs.mkdirSync(resolvedPath, { recursive: true });
+        }
+        
+        // Check if path is already added
+        if (storageLocations.some(loc => loc.path === resolvedPath)) {
+            return res.status(400).json({ error: 'This path is already added' });
+        }
+        
+        const newLocation = {
+            id: uuidv4(),
+            name,
+            path: resolvedPath,
+            enabled: true,
+            isDefault: false,
+            addedAt: new Date().toISOString()
+        };
+        
+        storageLocations.push(newLocation);
+        saveData(DATA_FILES.storageLocations, storageLocations);
+        logActivity('storage', `Added storage location: ${name} (${resolvedPath})`, req.clientIp, req.user?.username);
+        
+        res.json({ message: 'Storage location added', location: newLocation });
+    } catch (e) {
+        res.status(500).json({ error: 'Could not create/access path: ' + e.message });
+    }
+});
+
+// Update storage location (enable/disable, set default)
+app.put('/api/admin/storage-locations/:id', authenticateToken, (req, res) => {
+    const { id } = req.params;
+    const { enabled, isDefault, name } = req.body;
+    
+    const location = storageLocations.find(loc => loc.id === id);
+    if (!location) {
+        return res.status(404).json({ error: 'Storage location not found' });
+    }
+    
+    if (typeof enabled !== 'undefined') {
+        // Cannot disable default location
+        if (!enabled && location.isDefault) {
+            return res.status(400).json({ error: 'Cannot disable the default storage location' });
+        }
+        location.enabled = enabled;
+    }
+    
+    if (isDefault) {
+        // Set this as default, unset others
+        storageLocations.forEach(loc => loc.isDefault = false);
+        location.isDefault = true;
+        location.enabled = true; // Default must be enabled
+        // Update CONFIG.UPLOAD_DIR
+        CONFIG.UPLOAD_DIR = location.path;
+    }
+    
+    if (name) {
+        location.name = name;
+    }
+    
+    saveData(DATA_FILES.storageLocations, storageLocations);
+    logActivity('storage', `Updated storage location: ${location.name}`, req.clientIp, req.user?.username);
+    
+    res.json({ message: 'Storage location updated', location });
+});
+
+// Delete storage location
+app.delete('/api/admin/storage-locations/:id', authenticateToken, (req, res) => {
+    const { id } = req.params;
+    
+    const location = storageLocations.find(loc => loc.id === id);
+    if (!location) {
+        return res.status(404).json({ error: 'Storage location not found' });
+    }
+    
+    if (location.isDefault) {
+        return res.status(400).json({ error: 'Cannot delete the default storage location' });
+    }
+    
+    storageLocations = storageLocations.filter(loc => loc.id !== id);
+    saveData(DATA_FILES.storageLocations, storageLocations);
+    logActivity('storage', `Removed storage location: ${location.name}`, req.clientIp, req.user?.username);
+    
+    res.json({ message: 'Storage location removed' });
+});
+
+// Get active storage location for uploads
+app.get('/api/storage-location', (req, res) => {
+    const activeLocations = storageLocations.filter(loc => loc.enabled);
+    const defaultLocation = storageLocations.find(loc => loc.isDefault) || activeLocations[0];
+    res.json({ 
+        locations: activeLocations,
+        default: defaultLocation
+    });
 });
 
 // ============================================================================
