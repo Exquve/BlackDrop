@@ -1,5 +1,13 @@
 [
   {
+    "id": "3e616482-b76e-4189-a68d-09392e7d5fb5",
+    "timestamp": "2026-02-05T19:32:43.399Z",
+    "action": "delete",
+    "details": "Deleted: pycharm-2025.2.4-aarch64.dmg",
+    "ip": "192.168.1.230",
+    "user": "guest"
+  },
+  {
     "id": "50b3bccc-1c52-4ffc-868f-1e78575ad717",
     "timestamp": "2026-02-05T19:31:26.043Z",
     "action": "delete",

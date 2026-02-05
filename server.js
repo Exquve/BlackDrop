@@ -1380,6 +1380,9 @@ app.get('/api/admin/stats', authenticateToken, (req, res) => {
             }
         }
     }
+    
+    // Process memory (more accurate for app usage)
+    const processMemory = process.memoryUsage();
 
     res.json({
         files: {
@@ -1401,7 +1404,9 @@ app.get('/api/admin/stats', authenticateToken, (req, res) => {
             totalMemory: totalMem,
             freeMemory: freeMem,
             usedMemoryPercent: ((totalMem - freeMem) / totalMem * 100).toFixed(1),
+            processMemory: processMemory.heapUsed,
             uptime: os.uptime(),
+            processUptime: process.uptime(),
             nodeVersion: process.version,
             hostname: os.hostname(),
             localIp

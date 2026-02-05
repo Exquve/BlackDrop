@@ -806,15 +806,15 @@
                         <span class="system-value" id="sysTotalMemory">-</span>
                     </div>
                     <div class="system-item">
-                        <span class="system-label">Kullanılan RAM</span>
-                        <span class="system-value" id="sysUsedMemory">-</span>
+                        <span class="system-label">Boş RAM</span>
+                        <span class="system-value" id="sysFreeMemory">-</span>
                     </div>
                     <div class="system-item">
                         <span class="system-label">Node.js Sürümü</span>
                         <span class="system-value" id="sysNodeVersion">-</span>
                     </div>
                     <div class="system-item">
-                        <span class="system-label">Çalışma Süresi</span>
+                        <span class="system-label">Sistem Uptime</span>
                         <span class="system-value" id="sysUptime">-</span>
                     </div>
                 </div>
@@ -830,6 +830,20 @@
                     <div class="system-item">
                         <span class="system-label">Local IP</span>
                         <span class="system-value" id="sysLocalIp">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="admin-card">
+                <h3>⚡ Sunucu Bilgisi</h3>
+                <div class="system-grid">
+                    <div class="system-item">
+                        <span class="system-label">Sunucu Uptime</span>
+                        <span class="system-value" id="sysProcessUptime">-</span>
+                    </div>
+                    <div class="system-item">
+                        <span class="system-label">Process Memory</span>
+                        <span class="system-value" id="sysProcessMemory">-</span>
                     </div>
                 </div>
             </div>
@@ -1232,11 +1246,13 @@
                     document.getElementById('sysCpuModel').textContent = sys.cpuModel || '-';
                     document.getElementById('sysCpuCount').textContent = sys.cpuCount || '-';
                     document.getElementById('sysTotalMemory').textContent = formatSize(sys.totalMemory || 0);
-                    document.getElementById('sysUsedMemory').textContent = `${sys.usedMemoryPercent || 0}%`;
+                    document.getElementById('sysFreeMemory').textContent = formatSize(sys.freeMemory || 0);
                     document.getElementById('sysNodeVersion').textContent = sys.nodeVersion || '-';
                     document.getElementById('sysUptime').textContent = formatUptime(sys.uptime || 0);
                     document.getElementById('sysHostname').textContent = sys.hostname || '-';
                     document.getElementById('sysLocalIp').textContent = sys.localIp || '-';
+                    document.getElementById('sysProcessUptime').textContent = formatUptime(sys.processUptime || 0);
+                    document.getElementById('sysProcessMemory').textContent = formatSize(sys.processMemory || 0);
                 }
             } catch (e) {
                 console.error('System info load error:', e);
