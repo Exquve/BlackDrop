@@ -1,4 +1,5 @@
 {
   "authEnabled": false,
-  "notificationsEnabled": false
+  "notificationsEnabled": false,
+  "maxFileSize": "0"
 }

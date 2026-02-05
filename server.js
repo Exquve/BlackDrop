@@ -152,6 +152,11 @@ app.get('/share/:id', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'share.html'));
 });
 
+// Admin panel page route
+app.get('/admin-panel', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
@@ -1363,6 +1368,18 @@ app.get('/api/admin/stats', authenticateToken, (req, res) => {
     const cpus = os.cpus();
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
+    
+    // Get local IP
+    const networkInterfaces = os.networkInterfaces();
+    let localIp = 'localhost';
+    for (const name of Object.keys(networkInterfaces)) {
+        for (const iface of networkInterfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                localIp = iface.address;
+                break;
+            }
+        }
+    }
 
     res.json({
         files: {
@@ -1384,7 +1401,10 @@ app.get('/api/admin/stats', authenticateToken, (req, res) => {
             totalMemory: totalMem,
             freeMemory: freeMem,
             usedMemoryPercent: ((totalMem - freeMem) / totalMem * 100).toFixed(1),
-            uptime: os.uptime()
+            uptime: os.uptime(),
+            nodeVersion: process.version,
+            hostname: os.hostname(),
+            localIp
         }
     });
 });
@@ -1537,6 +1557,67 @@ app.post('/api/admin/cleanup-shares', authenticateToken, (req, res) => {
     logActivity('cleanup', `Cleaned ${cleaned} expired shares`, req.clientIp, req.user?.username);
     
     res.json({ cleaned });
+});
+
+// Admin shares list
+app.get('/api/admin/shares', authenticateToken, (req, res) => {
+    const shareList = Object.entries(shares).map(([id, share]) => ({
+        id,
+        ...share
+    }));
+    res.json(shareList);
+});
+
+// IP Whitelist management
+app.post('/api/admin/ip/whitelist', authenticateToken, (req, res) => {
+    const { ip } = req.body;
+    if (!ip) return res.status(400).json({ error: 'IP required' });
+    
+    if (!settings.ipWhitelist) settings.ipWhitelist = [];
+    if (!settings.ipWhitelist.includes(ip)) {
+        settings.ipWhitelist.push(ip);
+        saveData(DATA_FILES.settings, settings);
+        logActivity('settings', `Added ${ip} to whitelist`, req.clientIp, req.user?.username);
+    }
+    res.json({ message: 'IP added to whitelist' });
+});
+
+app.delete('/api/admin/ip/whitelist', authenticateToken, (req, res) => {
+    const { ip } = req.body;
+    if (!ip) return res.status(400).json({ error: 'IP required' });
+    
+    if (settings.ipWhitelist) {
+        settings.ipWhitelist = settings.ipWhitelist.filter(i => i !== ip);
+        saveData(DATA_FILES.settings, settings);
+        logActivity('settings', `Removed ${ip} from whitelist`, req.clientIp, req.user?.username);
+    }
+    res.json({ message: 'IP removed from whitelist' });
+});
+
+// IP Blacklist management
+app.post('/api/admin/ip/blacklist', authenticateToken, (req, res) => {
+    const { ip } = req.body;
+    if (!ip) return res.status(400).json({ error: 'IP required' });
+    
+    if (!settings.ipBlacklist) settings.ipBlacklist = [];
+    if (!settings.ipBlacklist.includes(ip)) {
+        settings.ipBlacklist.push(ip);
+        saveData(DATA_FILES.settings, settings);
+        logActivity('settings', `Added ${ip} to blacklist`, req.clientIp, req.user?.username);
+    }
+    res.json({ message: 'IP added to blacklist' });
+});
+
+app.delete('/api/admin/ip/blacklist', authenticateToken, (req, res) => {
+    const { ip } = req.body;
+    if (!ip) return res.status(400).json({ error: 'IP required' });
+    
+    if (settings.ipBlacklist) {
+        settings.ipBlacklist = settings.ipBlacklist.filter(i => i !== ip);
+        saveData(DATA_FILES.settings, settings);
+        logActivity('settings', `Removed ${ip} from blacklist`, req.clientIp, req.user?.username);
+    }
+    res.json({ message: 'IP removed from blacklist' });
 });
 
 // ============================================================================

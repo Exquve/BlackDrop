@@ -1,0 +1,1454 @@
+<!DOCTYPE html>
+<html lang="tr" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - BlackDrop</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        :root {
+            --sidebar-width: 260px;
+        }
+        
+        body {
+            display: flex;
+            min-height: 100vh;
+            margin: 0;
+            background: var(--bg-primary);
+        }
+        
+        .admin-sidebar {
+            width: var(--sidebar-width);
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            height: 100vh;
+            left: 0;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .admin-logo {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .admin-logo h1 {
+            font-size: 1.25rem;
+            margin: 0;
+            color: var(--text-primary);
+        }
+        
+        .admin-logo span {
+            font-size: 0.75rem;
+            background: var(--accent);
+            color: white;
+            padding: 0.2rem 0.5rem;
+            border-radius: 0.25rem;
+        }
+        
+        .admin-nav {
+            flex: 1;
+            padding: 1rem 0;
+            overflow-y: auto;
+        }
+        
+        .nav-section {
+            padding: 0 1rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .nav-section-title {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+            padding: 0 0.75rem;
+        }
+        
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all 0.2s;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        
+        .nav-link:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        
+        .nav-link.active {
+            background: var(--accent);
+            color: white;
+        }
+        
+        .nav-link svg {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+        
+        .admin-footer {
+            padding: 1rem;
+            border-top: 1px solid var(--border);
+        }
+        
+        .back-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            width: 100%;
+            padding: 0.75rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.875rem;
+        }
+        
+        .back-btn:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        
+        .admin-main {
+            flex: 1;
+            margin-left: var(--sidebar-width);
+            padding: 2rem;
+            overflow-y: auto;
+        }
+        
+        .admin-header {
+            margin-bottom: 2rem;
+        }
+        
+        .admin-header h2 {
+            font-size: 1.75rem;
+            margin: 0 0 0.5rem 0;
+            color: var(--text-primary);
+        }
+        
+        .admin-header p {
+            color: var(--text-tertiary);
+            margin: 0;
+        }
+        
+        .admin-content {
+            display: none;
+        }
+        
+        .admin-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-tertiary);
+            border-radius: 0.75rem;
+            font-size: 1.5rem;
+        }
+        
+        .stat-info {
+            flex: 1;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: block;
+        }
+        
+        .stat-label {
+            font-size: 0.875rem;
+            color: var(--text-tertiary);
+        }
+        
+        /* Cards */
+        .admin-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .admin-card h3 {
+            font-size: 1rem;
+            margin: 0 0 1rem 0;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        /* Activity List */
+        .activity-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .activity-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .activity-icon {
+            font-size: 1.25rem;
+        }
+        
+        .activity-info {
+            flex: 1;
+        }
+        
+        .activity-message {
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+        
+        .activity-meta {
+            color: var(--text-tertiary);
+            font-size: 0.75rem;
+            margin-top: 0.25rem;
+        }
+        
+        /* Table */
+        .admin-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .admin-table th,
+        .admin-table td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .admin-table th {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            font-weight: 500;
+        }
+        
+        .admin-table td {
+            color: var(--text-primary);
+            font-size: 0.875rem;
+        }
+        
+        .admin-table tr:hover td {
+            background: var(--bg-tertiary);
+        }
+        
+        /* Form */
+        .form-row {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .form-group {
+            flex: 1;
+            margin-bottom: 1rem;
+        }
+        
+        .form-group label {
+            display: block;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+        
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+        
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+        
+        .btn-secondary:hover {
+            background: var(--border);
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        
+        /* Toggle Switch */
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .toggle-info h4 {
+            margin: 0 0 0.25rem 0;
+            font-size: 0.9rem;
+            color: var(--text-primary);
+        }
+        
+        .toggle-info p {
+            margin: 0;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+        }
+        
+        .toggle-switch {
+            position: relative;
+            width: 48px;
+            height: 26px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 26px;
+            transition: 0.3s;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background: white;
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+        
+        .toggle-switch input:checked + .toggle-slider {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+        
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(22px);
+        }
+        
+        /* System Info */
+        .system-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+        
+        .system-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 0.5rem;
+        }
+        
+        .system-label {
+            color: var(--text-tertiary);
+            font-size: 0.875rem;
+        }
+        
+        .system-value {
+            color: var(--text-primary);
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+        
+        /* Shares Table */
+        .share-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .share-actions button {
+            padding: 0.4rem 0.75rem;
+            font-size: 0.75rem;
+        }
+        
+        /* IP List */
+        .ip-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        
+        .ip-tag {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 0.25rem;
+            font-size: 0.8rem;
+            color: var(--text-primary);
+        }
+        
+        .ip-tag button {
+            background: none;
+            border: none;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            padding: 0;
+            font-size: 1rem;
+            line-height: 1;
+        }
+        
+        .ip-tag button:hover {
+            color: #ef4444;
+        }
+        
+        /* Status badge */
+        .status-badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .status-badge.active {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+        
+        .status-badge.expired {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+        
+        /* Toast */
+        .toast-container {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            z-index: 9999;
+        }
+        
+        .toast {
+            padding: 1rem 1.5rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            margin-top: 0.5rem;
+            animation: slideIn 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .toast.success { border-left: 4px solid #22c55e; }
+        .toast.error { border-left: 4px solid #ef4444; }
+        .toast.info { border-left: 4px solid var(--accent); }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        /* Light theme */
+        [data-theme="light"] .admin-sidebar {
+            background: white;
+        }
+        
+        [data-theme="light"] .stat-card,
+        [data-theme="light"] .admin-card {
+            background: white;
+        }
+        
+        [data-theme="light"] .activity-item,
+        [data-theme="light"] .toggle-row,
+        [data-theme="light"] .system-item,
+        [data-theme="light"] .ip-tag {
+            background: #f8fafc;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .admin-sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.3s;
+            }
+            
+            .admin-sidebar.open {
+                transform: translateX(0);
+            }
+            
+            .admin-main {
+                margin-left: 0;
+                padding: 1rem;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .system-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="admin-sidebar">
+        <div class="admin-logo">
+            <span style="font-size: 1.5rem;">⚡</span>
+            <h1>BlackDrop</h1>
+            <span>Admin</span>
+        </div>
+        
+        <nav class="admin-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Genel</div>
+                <a class="nav-link active" data-section="dashboard">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+                    Dashboard
+                </a>
+                <a class="nav-link" data-section="activity">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Aktivite Logları
+                </a>
+                <a class="nav-link" data-section="shares">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+                    Paylaşımlar
+                </a>
+            </div>
+            
+            <div class="nav-section">
+                <div class="nav-section-title">Sistem</div>
+                <a class="nav-link" data-section="system">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
+                    Sistem Bilgisi
+                </a>
+                <a class="nav-link" data-section="storage">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>
+                    Depolama
+                </a>
+            </div>
+            
+            <div class="nav-section">
+                <div class="nav-section-title">Güvenlik</div>
+                <a class="nav-link" data-section="security">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    Güvenlik
+                </a>
+                <a class="nav-link" data-section="ip">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+                    IP Yönetimi
+                </a>
+            </div>
+            
+            <div class="nav-section">
+                <div class="nav-section-title">Ayarlar</div>
+                <a class="nav-link" data-section="settings">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Genel Ayarlar
+                </a>
+            </div>
+        </nav>
+        
+        <div class="admin-footer">
+            <button class="back-btn" onclick="location.href='/'">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+                Ana Sayfaya Dön
+            </button>
+        </div>
+    </aside>
+    
+    <!-- Main Content -->
+    <main class="admin-main">
+        <!-- Dashboard -->
+        <div id="dashboard" class="admin-content active">
+            <div class="admin-header">
+                <h2>📊 Dashboard</h2>
+                <p>Sistem durumu ve genel istatistikler</p>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">📁</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="totalFiles">-</span>
+                        <span class="stat-label">Toplam Dosya</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📂</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="totalFolders">-</span>
+                        <span class="stat-label">Klasör</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">💾</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="totalSize">-</span>
+                        <span class="stat-label">Toplam Boyut</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🗑️</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="trashSize">-</span>
+                        <span class="stat-label">Çöp Kutusu</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🔗</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="activeShares">-</span>
+                        <span class="stat-label">Aktif Paylaşım</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="todayActivity">-</span>
+                        <span class="stat-label">Bugünkü Aktivite</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="admin-card">
+                <h3>📋 Son Aktiviteler</h3>
+                <div class="activity-list" id="recentActivity">
+                    <p style="color: var(--text-tertiary)">Yükleniyor...</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Activity Logs -->
+        <div id="activity" class="admin-content">
+            <div class="admin-header">
+                <h2>📋 Aktivite Logları</h2>
+                <p>Tüm sistem aktiviteleri</p>
+            </div>
+            
+            <div class="admin-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3>Aktivite Geçmişi</h3>
+                    <button class="btn btn-danger" onclick="clearActivityLog()">🗑️ Logları Temizle</button>
+                </div>
+                <div class="activity-list" id="fullActivityList">
+                    <p style="color: var(--text-tertiary)">Yükleniyor...</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Shares -->
+        <div id="shares" class="admin-content">
+            <div class="admin-header">
+                <h2>🔗 Paylaşımlar</h2>
+                <p>Aktif paylaşım linkleri</p>
+            </div>
+            
+            <div class="admin-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3>Paylaşım Listesi</h3>
+                    <button class="btn btn-secondary" onclick="cleanupExpiredShares()">🧹 Süresi Dolmuşları Temizle</button>
+                </div>
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Dosya</th>
+                            <th>Oluşturulma</th>
+                            <th>Bitiş</th>
+                            <th>İndirme</th>
+                            <th>Durum</th>
+                            <th>İşlem</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sharesList">
+                        <tr><td colspan="6" style="text-align: center; color: var(--text-tertiary)">Yükleniyor...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- System Info -->
+        <div id="system" class="admin-content">
+            <div class="admin-header">
+                <h2>🖥️ Sistem Bilgisi</h2>
+                <p>Sunucu ve donanım bilgileri</p>
+            </div>
+            
+            <div class="admin-card">
+                <h3>💻 Donanım</h3>
+                <div class="system-grid" id="hardwareInfo">
+                    <div class="system-item">
+                        <span class="system-label">Platform</span>
+                        <span class="system-value" id="sysPlatform">-</span>
+                    </div>
+                    <div class="system-item">
+                        <span class="system-label">Mimari</span>
+                        <span class="system-value" id="sysArch">-</span>
+                    </div>
+                    <div class="system-item">
+                        <span class="system-label">CPU Model</span>
+                        <span class="system-value" id="sysCpuModel">-</span>
+                    </div>
+                    <div class="system-item">
+                        <span class="system-label">CPU Çekirdek</span>
+                        <span class="system-value" id="sysCpuCount">-</span>
+                    </div>
+                    <div class="system-item">
+                        <span class="system-label">Toplam RAM</span>
+                        <span class="system-value" id="sysTotalMemory">-</span>
+                    </div>
+                    <div class="system-item">
+                        <span class="system-label">Kullanılan RAM</span>
+                        <span class="system-value" id="sysUsedMemory">-</span>
+                    </div>
+                    <div class="system-item">
+                        <span class="system-label">Node.js Sürümü</span>
+                        <span class="system-value" id="sysNodeVersion">-</span>
+                    </div>
+                    <div class="system-item">
+                        <span class="system-label">Çalışma Süresi</span>
+                        <span class="system-value" id="sysUptime">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="admin-card">
+                <h3>🌐 Ağ Bilgisi</h3>
+                <div class="system-grid">
+                    <div class="system-item">
+                        <span class="system-label">Hostname</span>
+                        <span class="system-value" id="sysHostname">-</span>
+                    </div>
+                    <div class="system-item">
+                        <span class="system-label">Local IP</span>
+                        <span class="system-value" id="sysLocalIp">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Storage -->
+        <div id="storage" class="admin-content">
+            <div class="admin-header">
+                <h2>💾 Depolama Yönetimi</h2>
+                <p>Disk kullanımı ve temizlik</p>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">📁</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="storageUsed">-</span>
+                        <span class="stat-label">Kullanılan Alan</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🗑️</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="storageTrash">-</span>
+                        <span class="stat-label">Çöp Kutusu</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="admin-card">
+                <h3>🧹 Temizlik İşlemleri</h3>
+                <div class="btn-group" style="margin-top: 1rem;">
+                    <button class="btn btn-danger" onclick="emptyTrash()">🗑️ Çöp Kutusunu Boşalt</button>
+                    <button class="btn btn-secondary" onclick="cleanupExpiredShares()">🔗 Süresi Dolmuş Paylaşımları Sil</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Security -->
+        <div id="security" class="admin-content">
+            <div class="admin-header">
+                <h2>🔐 Güvenlik Ayarları</h2>
+                <p>Kimlik doğrulama ve erişim kontrolü</p>
+            </div>
+            
+            <div class="admin-card">
+                <h3>🔑 Kimlik Doğrulama</h3>
+                <div class="toggle-row">
+                    <div class="toggle-info">
+                        <h4>Kimlik Doğrulama Zorunlu</h4>
+                        <p>Aktif edildiğinde kullanıcıların giriş yapması zorunlu olur</p>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="authEnabled" onchange="updateSetting('authEnabled', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="admin-card">
+                <h3>🔒 Şifre Değiştir</h3>
+                <div class="form-row" style="max-width: 400px;">
+                    <div class="form-group" style="flex: 1;">
+                        <input type="password" id="newPassword" class="form-input" placeholder="Yeni şifre (min 4 karakter)">
+                    </div>
+                    <button class="btn btn-primary" onclick="changePassword()">Değiştir</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- IP Management -->
+        <div id="ip" class="admin-content">
+            <div class="admin-header">
+                <h2>🌐 IP Yönetimi</h2>
+                <p>Whitelist ve blacklist ayarları</p>
+            </div>
+            
+            <div class="admin-card">
+                <h3>✅ IP Whitelist</h3>
+                <p style="color: var(--text-tertiary); font-size: 0.875rem; margin-bottom: 1rem;">
+                    Whitelist aktifken sadece bu IP'ler erişebilir
+                </p>
+                <div class="toggle-row" style="margin-bottom: 1rem;">
+                    <div class="toggle-info">
+                        <h4>Whitelist Aktif</h4>
+                        <p>Sadece izin verilen IP'lerin erişimine izin ver</p>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="whitelistEnabled" onchange="updateSetting('whitelistEnabled', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="form-row" style="max-width: 400px;">
+                    <input type="text" id="whitelistIp" class="form-input" placeholder="IP adresi (ör: 192.168.1.100)">
+                    <button class="btn btn-primary" onclick="addToWhitelist()">Ekle</button>
+                </div>
+                <div class="ip-list" id="whitelistIps"></div>
+            </div>
+            
+            <div class="admin-card">
+                <h3>🚫 IP Blacklist</h3>
+                <p style="color: var(--text-tertiary); font-size: 0.875rem; margin-bottom: 1rem;">
+                    Bu IP'lerin erişimi engellenir
+                </p>
+                <div class="form-row" style="max-width: 400px;">
+                    <input type="text" id="blacklistIp" class="form-input" placeholder="IP adresi (ör: 192.168.1.100)">
+                    <button class="btn btn-danger" onclick="addToBlacklist()">Engelle</button>
+                </div>
+                <div class="ip-list" id="blacklistIps"></div>
+            </div>
+        </div>
+        
+        <!-- Settings -->
+        <div id="settings" class="admin-content">
+            <div class="admin-header">
+                <h2>⚙️ Genel Ayarlar</h2>
+                <p>Uygulama ayarları</p>
+            </div>
+            
+            <div class="admin-card">
+                <h3>🎨 Görünüm</h3>
+                <div class="toggle-row">
+                    <div class="toggle-info">
+                        <h4>Karanlık Tema</h4>
+                        <p>Admin panel temasını değiştir</p>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="darkTheme" checked onchange="toggleTheme()">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="admin-card">
+                <h3>📤 Upload Ayarları</h3>
+                <div class="form-group" style="max-width: 300px;">
+                    <label>Maksimum Dosya Boyutu (MB)</label>
+                    <input type="number" id="maxFileSize" class="form-input" value="10240" onchange="updateSetting('maxFileSize', this.value)">
+                </div>
+            </div>
+            
+            <div class="admin-card">
+                <h3>ℹ️ Uygulama Bilgisi</h3>
+                <div class="system-grid">
+                    <div class="system-item">
+                        <span class="system-label">Sürüm</span>
+                        <span class="system-value">1.0.0</span>
+                    </div>
+                    <div class="system-item">
+                        <span class="system-label">Geliştirici</span>
+                        <span class="system-value">BlackDrop Team</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+    
+    <script>
+        let authToken = localStorage.getItem('blackdrop-token');
+        
+        // Auth headers
+        function getAuthHeaders() {
+            const headers = { 'Content-Type': 'application/json' };
+            if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+            return headers;
+        }
+        
+        // Toast
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = message;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+        
+        // Format helpers
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        function formatDate(date) {
+            return new Date(date).toLocaleString('tr-TR');
+        }
+        
+        function formatUptime(seconds) {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            if (days > 0) return `${days} gün ${hours} saat`;
+            if (hours > 0) return `${hours} saat ${mins} dakika`;
+            return `${mins} dakika`;
+        }
+        
+        function getActivityIcon(type) {
+            const icons = {
+                'upload': '📤', 'download': '📥', 'delete': '🗑️',
+                'rename': '✏️', 'move': '📁', 'share': '🔗',
+                'share_download': '⬇️', 'login': '🔐', 'blocked': '🚫',
+                'cleanup': '🧹', 'settings': '⚙️'
+            };
+            return icons[type] || '📋';
+        }
+        
+        // Navigation
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.addEventListener('click', () => {
+                const section = link.dataset.section;
+                
+                document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+                link.classList.add('active');
+                
+                document.querySelectorAll('.admin-content').forEach(c => c.classList.remove('active'));
+                document.getElementById(section).classList.add('active');
+                
+                // Load section data
+                loadSectionData(section);
+            });
+        });
+        
+        function loadSectionData(section) {
+            switch(section) {
+                case 'dashboard': loadDashboard(); break;
+                case 'activity': loadActivityLogs(); break;
+                case 'shares': loadShares(); break;
+                case 'system': loadSystemInfo(); break;
+                case 'storage': loadStorageInfo(); break;
+                case 'security': loadSecuritySettings(); break;
+                case 'ip': loadIpSettings(); break;
+                case 'settings': loadGeneralSettings(); break;
+            }
+        }
+        
+        // Dashboard
+        async function loadDashboard() {
+            try {
+                const res = await fetch('/api/admin/stats', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const stats = await res.json();
+                    
+                    document.getElementById('totalFiles').textContent = stats.files?.total ?? 0;
+                    document.getElementById('totalFolders').textContent = stats.files?.folders ?? 0;
+                    document.getElementById('totalSize').textContent = formatSize(stats.files?.totalSize ?? 0);
+                    document.getElementById('trashSize').textContent = formatSize(stats.files?.trashSize ?? 0);
+                    document.getElementById('activeShares').textContent = stats.shares ?? 0;
+                    document.getElementById('todayActivity').textContent = stats.activity?.today ?? 0;
+                }
+                
+                // Load recent activity
+                const actRes = await fetch('/api/admin/activity', { headers: getAuthHeaders() });
+                if (actRes.ok) {
+                    const activities = await actRes.json();
+                    const list = document.getElementById('recentActivity');
+                    
+                    if (activities.length === 0) {
+                        list.innerHTML = '<p style="color: var(--text-tertiary)">Henüz aktivite yok</p>';
+                    } else {
+                        list.innerHTML = activities.slice(0, 5).map(a => `
+                            <div class="activity-item">
+                                <span class="activity-icon">${getActivityIcon(a.action)}</span>
+                                <div class="activity-info">
+                                    <span class="activity-message">${a.details}</span>
+                                    <span class="activity-meta">${a.user || '-'} • ${a.ip || '-'} • ${formatDate(a.timestamp)}</span>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                }
+            } catch (e) {
+                console.error('Dashboard load error:', e);
+            }
+        }
+        
+        // Activity Logs
+        async function loadActivityLogs() {
+            try {
+                const res = await fetch('/api/admin/activity', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const activities = await res.json();
+                    const list = document.getElementById('fullActivityList');
+                    
+                    if (activities.length === 0) {
+                        list.innerHTML = '<p style="color: var(--text-tertiary)">Henüz aktivite yok</p>';
+                    } else {
+                        list.innerHTML = activities.map(a => `
+                            <div class="activity-item">
+                                <span class="activity-icon">${getActivityIcon(a.action)}</span>
+                                <div class="activity-info">
+                                    <span class="activity-message">${a.details}</span>
+                                    <span class="activity-meta">${a.user || '-'} • ${a.ip || '-'} • ${formatDate(a.timestamp)}</span>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                }
+            } catch (e) {
+                console.error('Activity load error:', e);
+            }
+        }
+        
+        async function clearActivityLog() {
+            if (!confirm('Tüm aktivite logları silinecek. Emin misiniz?')) return;
+            
+            try {
+                await fetch('/api/admin/activity', { method: 'DELETE', headers: getAuthHeaders() });
+                showToast('Loglar temizlendi', 'success');
+                loadActivityLogs();
+                loadDashboard();
+            } catch (e) {
+                showToast('Hata oluştu', 'error');
+            }
+        }
+        
+        // Shares
+        async function loadShares() {
+            try {
+                const res = await fetch('/api/admin/shares', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const shares = await res.json();
+                    const tbody = document.getElementById('sharesList');
+                    
+                    if (shares.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-tertiary)">Paylaşım yok</td></tr>';
+                    } else {
+                        tbody.innerHTML = shares.map(s => {
+                            const isExpired = s.expiresAt && new Date(s.expiresAt) < new Date();
+                            const status = isExpired ? 
+                                '<span class="status-badge expired">Süresi Dolmuş</span>' : 
+                                '<span class="status-badge active">Aktif</span>';
+                            
+                            return `
+                                <tr>
+                                    <td>${s.fileName || s.path}</td>
+                                    <td>${formatDate(s.createdAt)}</td>
+                                    <td>${s.expiresAt ? formatDate(s.expiresAt) : 'Süresiz'}</td>
+                                    <td>${s.downloadCount || 0}${s.maxDownloads ? '/' + s.maxDownloads : ''}</td>
+                                    <td>${status}</td>
+                                    <td class="share-actions">
+                                        <button class="btn btn-secondary" onclick="copyShareLink('${s.id}')">📋 Kopyala</button>
+                                        <button class="btn btn-danger" onclick="deleteShare('${s.id}')">🗑️</button>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('');
+                    }
+                }
+            } catch (e) {
+                console.error('Shares load error:', e);
+            }
+        }
+        
+        function copyShareLink(id) {
+            const url = `${location.origin}/share/${id}`;
+            navigator.clipboard.writeText(url);
+            showToast('Link kopyalandı', 'success');
+        }
+        
+        async function deleteShare(id) {
+            if (!confirm('Bu paylaşımı silmek istiyor musunuz?')) return;
+            
+            try {
+                await fetch(`/api/shares/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
+                showToast('Paylaşım silindi', 'success');
+                loadShares();
+            } catch (e) {
+                showToast('Hata oluştu', 'error');
+            }
+        }
+        
+        async function cleanupExpiredShares() {
+            try {
+                const res = await fetch('/api/admin/cleanup-shares', { method: 'POST', headers: getAuthHeaders() });
+                const data = await res.json();
+                showToast(`${data.cleaned || 0} paylaşım temizlendi`, 'success');
+                loadShares();
+                loadDashboard();
+            } catch (e) {
+                showToast('Hata oluştu', 'error');
+            }
+        }
+        
+        // System Info
+        async function loadSystemInfo() {
+            try {
+                const res = await fetch('/api/admin/stats', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const stats = await res.json();
+                    const sys = stats.system || {};
+                    
+                    document.getElementById('sysPlatform').textContent = sys.platform || '-';
+                    document.getElementById('sysArch').textContent = sys.arch || '-';
+                    document.getElementById('sysCpuModel').textContent = sys.cpuModel || '-';
+                    document.getElementById('sysCpuCount').textContent = sys.cpuCount || '-';
+                    document.getElementById('sysTotalMemory').textContent = formatSize(sys.totalMemory || 0);
+                    document.getElementById('sysUsedMemory').textContent = `${sys.usedMemoryPercent || 0}%`;
+                    document.getElementById('sysNodeVersion').textContent = sys.nodeVersion || '-';
+                    document.getElementById('sysUptime').textContent = formatUptime(sys.uptime || 0);
+                    document.getElementById('sysHostname').textContent = sys.hostname || '-';
+                    document.getElementById('sysLocalIp').textContent = sys.localIp || '-';
+                }
+            } catch (e) {
+                console.error('System info load error:', e);
+            }
+        }
+        
+        // Storage
+        async function loadStorageInfo() {
+            try {
+                const res = await fetch('/api/admin/stats', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const stats = await res.json();
+                    document.getElementById('storageUsed').textContent = formatSize(stats.files?.totalSize ?? 0);
+                    document.getElementById('storageTrash').textContent = formatSize(stats.files?.trashSize ?? 0);
+                }
+            } catch (e) {
+                console.error('Storage info load error:', e);
+            }
+        }
+        
+        async function emptyTrash() {
+            if (!confirm('Çöp kutusundaki tüm dosyalar kalıcı olarak silinecek. Emin misiniz?')) return;
+            
+            try {
+                await fetch('/api/trash/empty', { method: 'DELETE', headers: getAuthHeaders() });
+                showToast('Çöp kutusu boşaltıldı', 'success');
+                loadStorageInfo();
+                loadDashboard();
+            } catch (e) {
+                showToast('Hata oluştu', 'error');
+            }
+        }
+        
+        // Security
+        async function loadSecuritySettings() {
+            try {
+                const res = await fetch('/api/admin/settings', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const settings = await res.json();
+                    document.getElementById('authEnabled').checked = settings.authEnabled || false;
+                }
+            } catch (e) {
+                console.error('Security settings load error:', e);
+            }
+        }
+        
+        async function updateSetting(key, value) {
+            try {
+                await fetch('/api/admin/settings', {
+                    method: 'PUT',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ [key]: value })
+                });
+                showToast('Ayar güncellendi', 'success');
+            } catch (e) {
+                showToast('Hata oluştu', 'error');
+            }
+        }
+        
+        async function changePassword() {
+            const password = document.getElementById('newPassword').value;
+            if (!password || password.length < 4) {
+                showToast('Şifre en az 4 karakter olmalı', 'error');
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/admin/change-password', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ password })
+                });
+                
+                if (res.ok) {
+                    showToast('Şifre değiştirildi', 'success');
+                    document.getElementById('newPassword').value = '';
+                } else {
+                    const err = await res.json();
+                    showToast(err.error || 'Hata oluştu', 'error');
+                }
+            } catch (e) {
+                showToast('Hata oluştu', 'error');
+            }
+        }
+        
+        // IP Management
+        async function loadIpSettings() {
+            try {
+                const res = await fetch('/api/admin/settings', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const settings = await res.json();
+                    
+                    document.getElementById('whitelistEnabled').checked = settings.whitelistEnabled || false;
+                    
+                    // Whitelist
+                    const whitelist = settings.ipWhitelist || [];
+                    document.getElementById('whitelistIps').innerHTML = whitelist.map(ip => `
+                        <div class="ip-tag">
+                            <span>${ip}</span>
+                            <button onclick="removeFromWhitelist('${ip}')">×</button>
+                        </div>
+                    `).join('') || '<span style="color: var(--text-tertiary); font-size: 0.875rem;">Liste boş</span>';
+                    
+                    // Blacklist
+                    const blacklist = settings.ipBlacklist || [];
+                    document.getElementById('blacklistIps').innerHTML = blacklist.map(ip => `
+                        <div class="ip-tag">
+                            <span>${ip}</span>
+                            <button onclick="removeFromBlacklist('${ip}')">×</button>
+                        </div>
+                    `).join('') || '<span style="color: var(--text-tertiary); font-size: 0.875rem;">Liste boş</span>';
+                }
+            } catch (e) {
+                console.error('IP settings load error:', e);
+            }
+        }
+        
+        async function addToWhitelist() {
+            const ip = document.getElementById('whitelistIp').value.trim();
+            if (!ip) return;
+            
+            try {
+                await fetch('/api/admin/ip/whitelist', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ ip })
+                });
+                document.getElementById('whitelistIp').value = '';
+                showToast('IP eklendi', 'success');
+                loadIpSettings();
+            } catch (e) {
+                showToast('Hata oluştu', 'error');
+            }
+        }
+        
+        async function removeFromWhitelist(ip) {
+            try {
+                await fetch('/api/admin/ip/whitelist', {
+                    method: 'DELETE',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ ip })
+                });
+                showToast('IP kaldırıldı', 'success');
+                loadIpSettings();
+            } catch (e) {
+                showToast('Hata oluştu', 'error');
+            }
+        }
+        
+        async function addToBlacklist() {
+            const ip = document.getElementById('blacklistIp').value.trim();
+            if (!ip) return;
+            
+            try {
+                await fetch('/api/admin/ip/blacklist', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ ip })
+                });
+                document.getElementById('blacklistIp').value = '';
+                showToast('IP engellendi', 'success');
+                loadIpSettings();
+            } catch (e) {
+                showToast('Hata oluştu', 'error');
+            }
+        }
+        
+        async function removeFromBlacklist(ip) {
+            try {
+                await fetch('/api/admin/ip/blacklist', {
+                    method: 'DELETE',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ ip })
+                });
+                showToast('IP kaldırıldı', 'success');
+                loadIpSettings();
+            } catch (e) {
+                showToast('Hata oluştu', 'error');
+            }
+        }
+        
+        // General Settings
+        async function loadGeneralSettings() {
+            const savedTheme = localStorage.getItem('admin-theme') || 'dark';
+            document.getElementById('darkTheme').checked = savedTheme === 'dark';
+            
+            try {
+                const res = await fetch('/api/admin/settings', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const settings = await res.json();
+                    document.getElementById('maxFileSize').value = settings.maxFileSize || 10240;
+                }
+            } catch (e) {
+                console.error('Settings load error:', e);
+            }
+        }
+        
+        function toggleTheme() {
+            const isDark = document.getElementById('darkTheme').checked;
+            document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+            localStorage.setItem('admin-theme', isDark ? 'dark' : 'light');
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            // Load theme
+            const savedTheme = localStorage.getItem('admin-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            
+            // Load dashboard
+            loadDashboard();
+        });
+    </script>
+</body>
+</html>

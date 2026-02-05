@@ -1,5 +1,13 @@
 [
   {
+    "id": "50b3bccc-1c52-4ffc-868f-1e78575ad717",
+    "timestamp": "2026-02-05T19:31:26.043Z",
+    "action": "delete",
+    "details": "Deleted: Wallper.dmg",
+    "ip": "192.168.1.230",
+    "user": "guest"
+  },
+  {
     "id": "b21246b3-2454-48c4-9b34-03000ad0f7da",
     "timestamp": "2026-02-05T19:21:10.744Z",
     "action": "login",
