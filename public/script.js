@@ -45,8 +45,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupKeyboardShortcuts();
     setupGridContextMenu();
     setupAdvancedSearch();
+    setupMobileMenu();
     loadTags();
 });
+
+// ============================================================================
+// MOBILE MENU
+// ============================================================================
+function setupMobileMenu() {
+    const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+    
+    if (mobileMenuBtn && sidebar) {
+        mobileMenuBtn.addEventListener('click', () => {
+            sidebar.classList.toggle('open');
+            sidebarOverlay?.classList.toggle('active');
+        });
+    }
+    
+    if (sidebarOverlay) {
+        sidebarOverlay.addEventListener('click', () => {
+            sidebar?.classList.remove('open');
+            sidebarOverlay.classList.remove('active');
+        });
+    }
+    
+    // Close sidebar when clicking on nav items (mobile)
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            if (window.innerWidth <= 768) {
+                sidebar?.classList.remove('open');
+                sidebarOverlay?.classList.remove('active');
+            }
+        });
+    });
+}
 
 // ============================================================================
 // AUTHENTICATION

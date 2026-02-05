@@ -118,17 +118,19 @@
             <div class="theme-switch active" id="themeSwitch" onclick="toggleTheme()"></div>
         </div>
     </aside>
+    
+    <!-- Sidebar Overlay for Mobile -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
     <!-- Main Content -->
     <main class="main-content">
-        <!-- Mobile Menu Button -->
-        <button class="icon-btn mobile-menu-btn" id="mobileMenuBtn" style="display: none;">
-            <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-        </button>
-
         <div class="top-bar">
+            <!-- Mobile Menu Button -->
+            <button class="icon-btn mobile-menu-btn" id="mobileMenuBtn">
+                <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+            </button>
             <input type="text" class="search-bar" placeholder="Search files..." id="searchInput">
             <button class="icon-btn" id="advancedSearchBtn" title="Advanced Search">
                 <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">

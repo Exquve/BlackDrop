@@ -1655,6 +1655,11 @@ body::before {
     gap: 2rem;
 }
 
+/* Mobile menu button - hidden by default */
+.mobile-menu-btn {
+    display: none;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .sidebar {
@@ -1662,12 +1667,32 @@ body::before {
         left: -280px;
         top: 0;
         bottom: 0;
-        z-index: 100;
-        transition: left 0.3s;
+        z-index: 1000;
+        transition: left 0.3s ease;
     }
 
     .sidebar.open {
         left: 0;
+    }
+    
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 999;
+    }
+    
+    .sidebar-overlay.active {
+        display: block;
+    }
+    
+    .mobile-menu-btn {
+        display: flex;
+        order: -1;
     }
 
     .main-content {
@@ -1680,7 +1705,7 @@ body::before {
 
     .search-bar {
         width: 100%;
-        order: 3;
+        order: 10;
         margin-top: 1rem;
     }
 
