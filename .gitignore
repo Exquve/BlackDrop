@@ -4,6 +4,9 @@ node_modules/
 # Uploaded files
 uploads/
 
+# Data files (user data, settings, activity logs)
+.data/
+
 # SSL Certificates (generate your own)
 certs/
 
