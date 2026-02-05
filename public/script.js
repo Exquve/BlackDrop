@@ -210,8 +210,8 @@ function applyFilterAndRender() {
     // 3. Sort
     filtered = sortFiles(filtered);
 
-    // Update count
-    fileCount.textContent = filtered.length;
+    // Update count (re-query since filterFiles may rebuild the element)
+    document.getElementById('fileCount').textContent = filtered.length;
 
     renderGrid(filtered);
 }
@@ -358,7 +358,7 @@ window.filterFiles = (type) => {
     document.querySelector(`.nav-item[data-filter="${type}"]`).classList.add('active');
 
     // Update Title
-    const titles = { 'all': 'All Files', 'media': 'Media', 'document': 'Documents', 'video': 'Videos' };
+    const titles = { 'all': 'All Files', 'media': 'Media', 'document': 'Documents' };
     sectionTitle.innerHTML = `${titles[type] || 'Files'} <span class="file-count" id="fileCount">0</span>`;
 
     applyFilterAndRender();
@@ -778,7 +778,7 @@ let previouslySelectedFiles = new Set();
 
 function initLassoSelection() {
     const mainContent = document.querySelector('.main-content');
-    
+
     mainContent.addEventListener('mousedown', handleSelectionStart);
     document.addEventListener('mousemove', handleSelectionMove);
     document.addEventListener('mouseup', handleSelectionEnd);
@@ -787,11 +787,11 @@ function initLassoSelection() {
 function handleSelectionStart(e) {
     // Only handle left mouse button (button 0)
     if (e.button !== 0) return;
-    
+
     // Don't start selection if clicking on interactive elements
     const isInteractive = e.target.closest('.file-card, .upload-btn, .icon-btn, .sort-btn, .search-bar, .nav-item, .theme-switch, button, input, a, .modal-overlay');
     if (isInteractive) return;
-    
+
     // Store previously selected files if holding Ctrl/Cmd
     if (e.ctrlKey || e.metaKey) {
         previouslySelectedFiles = new Set(selectedFiles);
@@ -800,10 +800,10 @@ function handleSelectionStart(e) {
         selectedFiles.clear();
         document.querySelectorAll('.file-card').forEach(c => c.classList.remove('selected'));
     }
-    
+
     isSelecting = true;
     selectionStart = { x: e.pageX, y: e.pageY };
-    
+
     // Create selection box
     selectionBox = document.createElement('div');
     selectionBox.className = 'selection-box';
@@ -813,28 +813,28 @@ function handleSelectionStart(e) {
     selectionBox.style.height = '0px';
     document.body.appendChild(selectionBox);
     document.body.classList.add('selecting');
-    
+
     e.preventDefault();
 }
 
 function handleSelectionMove(e) {
     if (!isSelecting || !selectionBox) return;
-    
+
     // Calculate box dimensions
     const currentX = e.pageX;
     const currentY = e.pageY;
-    
+
     const left = Math.min(selectionStart.x, currentX);
     const top = Math.min(selectionStart.y, currentY);
     const width = Math.abs(currentX - selectionStart.x);
     const height = Math.abs(currentY - selectionStart.y);
-    
+
     // Update selection box position and size
     selectionBox.style.left = left + 'px';
     selectionBox.style.top = top + 'px';
     selectionBox.style.width = width + 'px';
     selectionBox.style.height = height + 'px';
-    
+
     // Get selection box bounds (in viewport coordinates)
     const boxRect = {
         left: left,
@@ -842,7 +842,7 @@ function handleSelectionMove(e) {
         right: left + width,
         bottom: top + height
     };
-    
+
     // Check which file cards intersect with selection box
     document.querySelectorAll('.file-card').forEach(card => {
         const cardRect = card.getBoundingClientRect();
@@ -853,7 +853,7 @@ function handleSelectionMove(e) {
             right: cardRect.right + window.scrollX,
             bottom: cardRect.bottom + window.scrollY
         };
-        
+
         // Check intersection
         const intersects = !(
             boxRect.right < cardPageRect.left ||
@@ -861,9 +861,9 @@ function handleSelectionMove(e) {
             boxRect.bottom < cardPageRect.top ||
             boxRect.top > cardPageRect.bottom
         );
-        
+
         const filename = card.getAttribute('data-filename');
-        
+
         if (intersects) {
             selectedFiles.add(filename);
             card.classList.add('selected');
@@ -876,15 +876,15 @@ function handleSelectionMove(e) {
 
 function handleSelectionEnd(e) {
     if (!isSelecting) return;
-    
+
     isSelecting = false;
     document.body.classList.remove('selecting');
-    
+
     if (selectionBox) {
         selectionBox.remove();
         selectionBox = null;
     }
-    
+
     previouslySelectedFiles.clear();
 }
 
