@@ -227,6 +227,10 @@ function logActivity(action, details, ip, user = 'anonymous') {
         ip,
         user
     };
+    
+    // Log to terminal
+    console.log(`[${new Date().toLocaleTimeString()}] [${action.toUpperCase()}] User: ${user} | IP: ${ip} | ${details}`);
+    
     activityLog.unshift(entry);
     if (activityLog.length > 1000) activityLog = activityLog.slice(0, 1000);
     io.emit('activity:new', entry);

@@ -56,21 +56,21 @@ function setupMobileMenu() {
     const mobileMenuBtn = document.getElementById('mobileMenuBtn');
     const sidebar = document.getElementById('sidebar');
     const sidebarOverlay = document.getElementById('sidebarOverlay');
-    
+
     if (mobileMenuBtn && sidebar) {
         mobileMenuBtn.addEventListener('click', () => {
             sidebar.classList.toggle('open');
             sidebarOverlay?.classList.toggle('active');
         });
     }
-    
+
     if (sidebarOverlay) {
         sidebarOverlay.addEventListener('click', () => {
             sidebar?.classList.remove('open');
             sidebarOverlay.classList.remove('active');
         });
     }
-    
+
     // Close sidebar when clicking on nav items (mobile)
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', () => {
@@ -89,7 +89,7 @@ async function checkAuthStatus() {
     try {
         const res = await fetch('/api/auth/status');
         const data = await res.json();
-        
+
         if (data.authEnabled && !authToken) {
             showLoginModal();
         } else {
@@ -248,7 +248,7 @@ socket.on('activity:new', (data) => {
 function fetchContents() {
     showLoadingSkeletons();
     const pathParam = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
-    
+
     fetch(`/api/contents?path=${encodeURIComponent(pathParam)}`, {
         headers: getAuthHeaders()
     })
@@ -338,11 +338,11 @@ async function toggleFavorite(filePath) {
         const fp = currentPath === '/' ? f.name : currentPath.replace(/^\//, '') + '/' + f.name;
         return fp === filePath || f.name === filePath;
     });
-    
+
     if (!file) return;
-    
+
     const fullPath = currentPath === '/' ? file.name : currentPath.replace(/^\//, '') + '/' + file.name;
-    
+
     try {
         if (file.isFavorite) {
             await fetch('/api/favorites', {
@@ -376,7 +376,7 @@ function sortFiles(files) {
         // Folders always first
         if (a.isFolder && !b.isFolder) return -1;
         if (!a.isFolder && b.isFolder) return 1;
-        
+
         let comparison = 0;
         switch (currentSort) {
             case 'name':
@@ -540,8 +540,8 @@ function renderGrid(files) {
 
         let previewHtml = '';
         if (file.type === 'image') {
-            const imgPath = currentPath === '/' ? file.name : `${currentPath.replace(/^\//, '')}/${file.name}`;
-            previewHtml = `<img src="/download/${encodeURIComponent(file.name)}" loading="lazy" alt="${file.name}">`;
+            const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+            previewHtml = `<img src="/api/download/${encodeURIComponent(file.name)}?parentPath=${encodeURIComponent(parentPath)}" loading="lazy" alt="${file.name}">`;
         } else {
             previewHtml = getIconForType(file.type);
         }
@@ -581,7 +581,7 @@ function renderGrid(files) {
         card.addEventListener('contextmenu', (e) => showContextMenu(e, file.name));
         card.addEventListener('click', (e) => {
             if (e.target.closest('.favorite-btn')) return;
-            
+
             if (e.ctrlKey || e.metaKey) {
                 if (selectedFiles.has(file.name)) {
                     selectedFiles.delete(file.name);
@@ -617,7 +617,7 @@ function renderGrid(files) {
 function updateBulkActions() {
     const bulkBar = document.getElementById('bulkActionsBar');
     if (!bulkBar) return;
-    
+
     if (selectedFiles.size > 1) {
         bulkBar.style.display = 'flex';
         document.getElementById('selectedCount').textContent = `${selectedFiles.size} öğe seçili`;
@@ -633,8 +633,8 @@ window.bulkDelete = async () => {
 
 window.bulkDownloadZip = async () => {
     if (selectedFiles.size === 0) return;
-    
-    const paths = [...selectedFiles].map(name => 
+
+    const paths = [...selectedFiles].map(name =>
         currentPath === '/' ? name : `${currentPath.replace(/^\//, '')}/${name}`
     );
 
@@ -674,9 +674,9 @@ window.filterFiles = (type) => {
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     document.querySelector(`.nav-item[data-filter="${type}"]`)?.classList.add('active');
 
-    const titles = { 
-        'all': 'Tüm Dosyalar', 
-        'media': 'Medya', 
+    const titles = {
+        'all': 'Tüm Dosyalar',
+        'media': 'Medya',
         'document': 'Belgeler',
         'favorites': 'Favoriler',
         'recent': 'Son Açılanlar'
@@ -715,7 +715,7 @@ viewToggleBtn?.addEventListener('click', () => {
     isListView = !isListView;
     fileGrid.classList.toggle('list-view', isListView);
     if (viewIcon) {
-        viewIcon.innerHTML = isListView 
+        viewIcon.innerHTML = isListView
             ? `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>`
             : `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>`;
     }
@@ -774,7 +774,7 @@ function uploadFile(file) {
     const xhr = new XMLHttpRequest();
     const parentPathQuery = currentPath === '/' ? '' : `?parentPath=${encodeURIComponent(currentPath)}`;
     xhr.open('POST', `/upload${parentPathQuery}`, true);
-    
+
     if (authToken) {
         xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
     }
@@ -819,7 +819,7 @@ function showContextMenu(e, filename) {
     // Update context menu items based on file type
     const ctxPreview = document.getElementById('ctxPreview');
     const ctxShare = document.getElementById('ctxShare');
-    
+
     if (ctxPreview) ctxPreview.style.display = isFolder ? 'none' : 'flex';
 
     const menuWidth = 200;
@@ -919,14 +919,14 @@ window.createShareLink = async () => {
             const data = await res.json();
             document.getElementById('shareUrl').value = data.shareUrl;
             document.getElementById('shareResult').style.display = 'block';
-            
+
             // Generate QR code
             const qrRes = await fetch(`/api/qr?url=${encodeURIComponent(data.shareUrl)}`);
             if (qrRes.ok) {
                 const qrData = await qrRes.json();
                 document.getElementById('shareQR').src = qrData.qr;
             }
-            
+
             showToast('Paylaşım linki oluşturuldu', 'success');
         }
     } catch (e) {
@@ -953,7 +953,7 @@ function showTagModal(filename) {
 
     document.getElementById('tagFileName').textContent = filename;
     document.getElementById('tagInput').value = '';
-    
+
     const tagsContainer = document.getElementById('existingTags');
     tagsContainer.innerHTML = existingTags.map(t => `
         <span class="tag-item">
@@ -1003,7 +1003,7 @@ async function previewFile(filename) {
     }
 
     if (previewTitle) previewTitle.textContent = file.name;
-    
+
     // Build URL with parentPath
     const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
     const url = `/api/download/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}`;
@@ -1073,7 +1073,7 @@ async function previewFile(filename) {
                     'sh': 'bash', 'yml': 'yaml', 'yaml': 'yaml'
                 };
                 const lang = langMap[ext] || 'plaintext';
-                
+
                 if (file.type === 'markdown') {
                     previewContainer.innerHTML = `<div class="markdown-preview">${marked.parse(data.content)}</div>`;
                 } else {
@@ -1233,7 +1233,7 @@ window.confirmDelete = async () => {
     if (bulkDeleteMode) {
         // Bulk delete
         const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
-        
+
         for (const name of selectedFiles) {
             await fetch(`/api/files/${encodeURIComponent(name)}?parentPath=${encodeURIComponent(parentPath)}`, {
                 method: 'DELETE',
@@ -1247,10 +1247,10 @@ window.confirmDelete = async () => {
         closeDeleteModal();
         return;
     }
-    
+
     // Single file delete
     if (!fileToDelete) return;
-    
+
     const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
     const url = `/api/files/${encodeURIComponent(fileToDelete)}?parentPath=${encodeURIComponent(parentPath)}`;
 
@@ -1278,8 +1278,9 @@ deleteModal?.addEventListener('click', (e) => {
 // DOWNLOAD
 // ============================================================================
 function downloadFile(name) {
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
     const link = document.createElement('a');
-    link.href = `/download/${encodeURIComponent(name)}`;
+    link.href = `/api/download/${encodeURIComponent(name)}?parentPath=${encodeURIComponent(parentPath)}`;
     link.download = '';
     link.click();
 }
@@ -1412,7 +1413,7 @@ function updateBreadcrumbs() {
 
     const existingItems = breadcrumbNav.querySelectorAll('.breadcrumb-item:not(.home)');
     existingItems.forEach(item => item.remove());
-    
+
     const separators = breadcrumbNav.querySelectorAll('.breadcrumb-separator');
     separators.forEach(sep => sep.remove());
 
@@ -1544,7 +1545,7 @@ window.showTrashModal = async () => {
         if (res.ok) {
             const items = await res.json();
             const list = document.getElementById('trashList');
-            
+
             if (items.length === 0) {
                 list.innerHTML = '<div class="empty-state"><p>Çöp kutusu boş</p></div>';
             } else {
@@ -1591,7 +1592,7 @@ window.restoreFromTrash = async (id) => {
 
 window.deleteFromTrash = async (id) => {
     if (!confirm('Bu dosya kalıcı olarak silinecek. Emin misiniz?')) return;
-    
+
     try {
         const res = await fetch(`/api/trash/${id}`, {
             method: 'DELETE',
@@ -1608,7 +1609,7 @@ window.deleteFromTrash = async (id) => {
 
 window.emptyTrash = async () => {
     if (!confirm('Çöp kutusundaki tüm dosyalar kalıcı olarak silinecek. Emin misiniz?')) return;
-    
+
     try {
         const res = await fetch('/api/trash', {
             method: 'DELETE',
@@ -1635,7 +1636,7 @@ window.showAdminModal = async () => {
 
     // Show modal first with loading state
     modal.classList.add('active');
-    
+
     // Set loading placeholders
     const loadingText = '...';
     document.getElementById('statTotalFiles').textContent = loadingText;
@@ -1653,7 +1654,7 @@ window.showAdminModal = async () => {
         const res = await fetch('/api/admin/stats', { headers: getAuthHeaders() });
         if (res.ok) {
             const stats = await res.json();
-            
+
             document.getElementById('statTotalFiles').textContent = stats.files?.total ?? 0;
             document.getElementById('statTotalFolders').textContent = stats.files?.folders ?? 0;
             document.getElementById('statTotalSize').textContent = formatSize(stats.files?.totalSize ?? 0);
@@ -1686,10 +1687,10 @@ window.showAdminTab = async (tab) => {
     // Update tab buttons
     document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
     document.querySelector(`.admin-tab[data-tab="${tab}"]`)?.classList.add('active');
-    
+
     // Hide all tab contents
     document.querySelectorAll('.admin-tab-content').forEach(c => c.style.display = 'none');
-    
+
     // Show selected tab content
     if (tab === 'stats') {
         document.getElementById('adminStatsTab').style.display = 'block';
@@ -1705,7 +1706,7 @@ window.showAdminTab = async (tab) => {
 async function loadActivityLog() {
     const list = document.getElementById('activityList');
     list.innerHTML = '<p class="text-muted">Yükleniyor...</p>';
-    
+
     try {
         const res = await fetch('/api/admin/activity', { headers: getAuthHeaders() });
         if (res.ok) {
@@ -1762,7 +1763,7 @@ window.updateSetting = async (key, value) => {
             body: JSON.stringify({ [key]: value })
         });
         showToast('Ayar güncellendi', 'success');
-        
+
         if (key === 'authEnabled' && value) {
             showToast('Kimlik doğrulama aktif edildi. Sayfayı yenileyince giriş yapmanız gerekecek.', 'info');
         }
@@ -1777,14 +1778,14 @@ window.changeAdminPassword = async () => {
         showToast('Şifre en az 4 karakter olmalı', 'error');
         return;
     }
-    
+
     try {
         const res = await fetch('/api/admin/change-password', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify({ password })
         });
-        
+
         if (res.ok) {
             showToast('Şifre değiştirildi', 'success');
             document.getElementById('newAdminPassword').value = '';
@@ -1799,7 +1800,7 @@ window.changeAdminPassword = async () => {
 
 window.clearActivityLog = async () => {
     if (!confirm('Tüm aktivite logları silinecek. Emin misiniz?')) return;
-    
+
     try {
         await fetch('/api/admin/activity', {
             method: 'DELETE',
@@ -1830,7 +1831,7 @@ function formatUptime(seconds) {
     const days = Math.floor(seconds / 86400);
     const hours = Math.floor((seconds % 86400) / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
-    
+
     if (days > 0) return `${days}g ${hours}sa`;
     if (hours > 0) return `${hours}sa ${mins}dk`;
     return `${mins}dk`;
