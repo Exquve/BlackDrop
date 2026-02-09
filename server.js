@@ -585,6 +585,7 @@ app.get('/api/contents', authenticateToken, (req, res) => {
 app.get('/api/download/:filename(*)', (req, res) => {
     const filename = req.params.filename;
     const parentPath = req.query.parentPath || '';
+    const inline = req.query.inline === 'true';
     const filePath = safeResolvePath(path.join(parentPath, filename));
 
     if (!filePath || !fs.existsSync(filePath)) {
@@ -596,7 +597,12 @@ app.get('/api/download/:filename(*)', (req, res) => {
     addToRecent(relativePath, 'downloaded');
     logActivity('download', `Downloaded: ${filename}`, req.clientIp);
 
-    res.download(filePath);
+    if (inline) {
+        // Serve file inline for preview (PDF, images, etc.)
+        res.sendFile(filePath);
+    } else {
+        res.download(filePath);
+    }
 });
 
 // Delete (move to trash)
@@ -726,6 +732,44 @@ app.post('/api/folders', authenticateToken, (req, res) => {
         res.json({ message: 'Folder created', folder: folderData });
     } catch (e) {
         res.status(500).json({ error: 'Could not create folder' });
+    }
+});
+
+// Create file
+app.post('/api/files/create', authenticateToken, (req, res) => {
+    const { name, parentPath, content } = req.body;
+
+    if (!name) return res.status(400).json({ error: 'File name is required' });
+    if (name.includes('/') || name.includes('\\') || name.includes('..')) {
+        return res.status(400).json({ error: 'Invalid file name' });
+    }
+
+    const parentDir = safeResolvePath(parentPath || '');
+    if (!parentDir) return res.status(400).json({ error: 'Invalid parent path' });
+
+    const newFilePath = path.join(parentDir, name);
+
+    if (fs.existsSync(newFilePath)) {
+        return res.status(400).json({ error: 'A file with this name already exists' });
+    }
+
+    try {
+        fs.writeFileSync(newFilePath, content || '');
+        const stats = fs.statSync(newFilePath);
+        const fileData = {
+            name,
+            isFolder: false,
+            size: stats.size,
+            date: stats.mtime,
+            type: getFileType(name),
+            itemCount: 0
+        };
+
+        io.emit('file:uploaded', { file: fileData, parentPath: parentPath || '/' });
+        logActivity('create_file', `Created file: ${name}`, req.clientIp, req.user?.username);
+        res.json({ message: 'File created', file: fileData });
+    } catch (e) {
+        res.status(500).json({ error: 'Could not create file' });
     }
 });
 
@@ -1795,6 +1839,30 @@ app.get('/api/preview/:filename(*)', authenticateToken, (req, res) => {
         res.json({ content, type: getFileType(filename) });
     } catch (e) {
         res.status(500).json({ error: 'Could not read file' });
+    }
+});
+
+// Save file content (for editing markdown/code files)
+app.put('/api/preview/:filename(*)', authenticateToken, (req, res) => {
+    const filename = req.params.filename;
+    const parentPath = req.query.parentPath || '';
+    const { content } = req.body;
+    const filePath = safeResolvePath(path.join(parentPath, filename));
+
+    if (!filePath || !fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'File not found' });
+    }
+
+    if (typeof content !== 'string') {
+        return res.status(400).json({ error: 'Content is required' });
+    }
+
+    try {
+        fs.writeFileSync(filePath, content, 'utf8');
+        logActivity('edit', `Edited: ${filename}`, req.clientIp, req.user?.username);
+        res.json({ message: 'File saved', type: getFileType(filename) });
+    } catch (e) {
+        res.status(500).json({ error: 'Could not save file' });
     }
 });
 

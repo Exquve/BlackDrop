@@ -303,6 +303,39 @@
             </svg>
             Yeni Klasör
         </div>
+        <div class="context-divider"></div>
+        <div class="context-item" id="ctxCreateTxt">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                </path>
+            </svg>
+            Yeni .txt Dosyası
+        </div>
+        <div class="context-item" id="ctxCreateMd">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z">
+                </path>
+            </svg>
+            Yeni .md Dosyası
+        </div>
+        <div class="context-item" id="ctxCreateJson">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4">
+                </path>
+            </svg>
+            Yeni .json Dosyası
+        </div>
+        <div class="context-item" id="ctxCreateHtml">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4">
+                </path>
+            </svg>
+            Yeni .html Dosyası
+        </div>
     </div>
 
     <!-- Create Folder Modal -->
@@ -324,6 +357,29 @@
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeCreateFolderModal()">İptal</button>
                 <button class="btn-primary" onclick="confirmCreateFolder()">Oluştur</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create File Modal -->
+    <div id="createFileModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="createFileTitle">Yeni Dosya</h3>
+                <button class="close-btn" onclick="closeCreateFileModal()">
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                        </path>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="fileNameInput" class="search-bar" style="width: 100%; padding-left: 1rem;"
+                    placeholder="Dosya adı">
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeCreateFileModal()">İptal</button>
+                <button class="btn-primary" onclick="confirmCreateFile()">Oluştur</button>
             </div>
         </div>
     </div>
@@ -370,7 +426,7 @@
 
     <!-- Preview Modal -->
     <div id="previewModal" class="modal-overlay">
-        <div class="modal" style="max-width: 90vw; width: auto;">
+        <div class="modal preview-modal-content">
             <div class="modal-header">
                 <h3 id="previewTitle">Preview</h3>
                 <button class="close-btn" onclick="closePreviewModal()">
