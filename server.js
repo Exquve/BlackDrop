@@ -11,10 +11,14 @@ const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const archiver = require('archiver');
 const QRCode = require('qrcode');
-const { v4: uuidv4 } = require('uuid');
 const compression = require('compression');
 const helmet = require('helmet');
 const NodeCache = require('node-cache');
+const crypto = require('crypto');
+const { execFile } = require('child_process');
+
+// Use built-in crypto.randomUUID() instead of uuid package
+const uuidv4 = () => crypto.randomUUID();
 
 const app = express();
 
@@ -54,7 +58,11 @@ const DATA_FILES = {
     downloads: path.join(CONFIG.DATA_DIR, 'downloads.json'),
     ipConfig: path.join(CONFIG.DATA_DIR, 'ip-config.json'),
     settings: path.join(CONFIG.DATA_DIR, 'settings.json'),
-    storageLocations: path.join(CONFIG.DATA_DIR, 'storage-locations.json')
+    storageLocations: path.join(CONFIG.DATA_DIR, 'storage-locations.json'),
+    comments: path.join(CONFIG.DATA_DIR, 'comments.json'),
+    fileVersions: path.join(CONFIG.DATA_DIR, 'file-versions.json'),
+    searchHistory: path.join(CONFIG.DATA_DIR, 'search-history.json'),
+    notifications: path.join(CONFIG.DATA_DIR, 'notifications.json')
 };
 
 // Initialize data files
@@ -86,6 +94,18 @@ let settings = loadData(DATA_FILES.settings, { authEnabled: false, notifications
 let storageLocations = loadData(DATA_FILES.storageLocations, [
     { id: 'default', name: 'Ana Depolama', path: CONFIG.UPLOAD_DIR, enabled: true, isDefault: true }
 ]);
+let comments = loadData(DATA_FILES.comments, {});
+let fileVersions = loadData(DATA_FILES.fileVersions, {});
+let searchHistory = loadData(DATA_FILES.searchHistory, []);
+let notifications = loadData(DATA_FILES.notifications, []);
+
+// Versions directory
+const VERSIONS_DIR = path.join(CONFIG.DATA_DIR, 'versions');
+if (!fs.existsSync(VERSIONS_DIR)) fs.mkdirSync(VERSIONS_DIR, { recursive: true });
+
+// Backup directory
+const BACKUP_DIR = path.join(CONFIG.DATA_DIR, 'backups');
+if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
 
 // Cache for thumbnails
 const thumbnailCache = new NodeCache({ stdTTL: 3600, checkperiod: 600 });
@@ -102,6 +122,10 @@ setInterval(() => {
     saveData(DATA_FILES.ipConfig, ipConfig);
     saveData(DATA_FILES.settings, settings);
     saveData(DATA_FILES.storageLocations, storageLocations);
+    saveData(DATA_FILES.comments, comments);
+    saveData(DATA_FILES.fileVersions, fileVersions);
+    saveData(DATA_FILES.searchHistory, searchHistory);
+    saveData(DATA_FILES.notifications, notifications);
 }, 60000); // Every minute
 
 // ============================================================================
@@ -248,6 +272,62 @@ function addToRecent(filePath, action = 'opened') {
     if (recentFiles.length > 50) recentFiles = recentFiles.slice(0, 50);
 }
 
+function addNotification(type, message, details = {}) {
+    const notification = {
+        id: uuidv4(),
+        type,
+        message,
+        details,
+        read: false,
+        timestamp: new Date().toISOString()
+    };
+    notifications.unshift(notification);
+    if (notifications.length > 200) notifications = notifications.slice(0, 200);
+    io.emit('notification:new', notification);
+    return notification;
+}
+
+function computeFileChecksum(filePath, algorithm = 'sha256') {
+    return new Promise((resolve, reject) => {
+        const hash = crypto.createHash(algorithm);
+        const stream = fs.createReadStream(filePath);
+        stream.on('data', data => hash.update(data));
+        stream.on('end', () => resolve(hash.digest('hex')));
+        stream.on('error', reject);
+    });
+}
+
+function saveFileVersion(filePath, relativePath) {
+    try {
+        if (!fs.existsSync(filePath)) return;
+        const stats = fs.statSync(filePath);
+        if (stats.size > 10 * 1024 * 1024) return; // Skip files > 10MB
+
+        const versionId = uuidv4();
+        const ext = path.extname(relativePath);
+        const versionPath = path.join(VERSIONS_DIR, versionId + ext);
+
+        fs.copyFileSync(filePath, versionPath);
+
+        if (!fileVersions[relativePath]) fileVersions[relativePath] = [];
+        fileVersions[relativePath].unshift({
+            id: versionId,
+            ext,
+            size: stats.size,
+            timestamp: new Date().toISOString()
+        });
+        // Keep max 20 versions per file
+        if (fileVersions[relativePath].length > 20) {
+            const removed = fileVersions[relativePath].splice(20);
+            removed.forEach(v => {
+                const oldPath = path.join(VERSIONS_DIR, v.id + v.ext);
+                if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+            });
+        }
+        saveData(DATA_FILES.fileVersions, fileVersions);
+    } catch (e) { console.error('Version save error:', e); }
+}
+
 function cleanExpiredShares() {
     const now = Date.now();
     Object.keys(shares).forEach(key => {
@@ -311,6 +391,13 @@ function authenticateToken(req, res, next) {
         req.user = user;
         next();
     });
+}
+
+function requireAdmin(req, res, next) {
+    if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+    next();
 }
 
 // IP filtering middleware
@@ -419,15 +506,15 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
         return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = jwt.sign({ username, role: user.role }, CONFIG.JWT_SECRET, { expiresIn: CONFIG.JWT_EXPIRES_IN });
+    const token = jwt.sign({ username, role: user.role, permissions: user.permissions, homeDir: user.homeDir }, CONFIG.JWT_SECRET, { expiresIn: CONFIG.JWT_EXPIRES_IN });
     logActivity('login', `User logged in: ${username}`, getClientIp(req), username);
 
-    res.json({ token, username, role: user.role });
+    res.json({ token, username, role: user.role, permissions: user.permissions, homeDir: user.homeDir });
 });
 
 // Register (admin only or first user)
 app.post('/api/auth/register', (req, res) => {
-    const { username, password, role = 'user' } = req.body;
+    const { username, password, role = 'user', permissions } = req.body;
 
     if (!username || !password) {
         return res.status(400).json({ error: 'Username and password required' });
@@ -437,9 +524,16 @@ app.post('/api/auth/register', (req, res) => {
         return res.status(400).json({ error: 'Username already exists' });
     }
 
+    // Create user home directory
+    const homeDir = path.join(CONFIG.UPLOAD_DIR, 'users', username);
+    if (!fs.existsSync(homeDir)) fs.mkdirSync(homeDir, { recursive: true });
+
     users[username] = {
         password: bcrypt.hashSync(password, 10),
-        role
+        role,
+        homeDir: `users/${username}`,
+        permissions: permissions || { read: true, write: true, delete: false, share: true },
+        createdAt: new Date().toISOString()
     };
     saveData(DATA_FILES.users, users);
 
@@ -481,6 +575,7 @@ app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => 
 
     io.emit('file:uploaded', { file: fileData, parentPath: parentPath || '/' });
     logActivity('upload', `Uploaded: ${req.file.filename} (${formatBytes(req.file.size)})`, req.clientIp, req.user?.username);
+    addNotification('upload', `Dosya yuklendi: ${req.file.filename}`, { file: req.file.filename, size: req.file.size });
 
     res.json({ message: 'File uploaded successfully', filename: req.file.filename, parentPath });
 });
@@ -1858,11 +1953,669 @@ app.put('/api/preview/:filename(*)', authenticateToken, (req, res) => {
     }
 
     try {
+        // Save version before overwriting
+        const relativePath = path.join(parentPath, filename);
+        saveFileVersion(filePath, relativePath);
+
         fs.writeFileSync(filePath, content, 'utf8');
         logActivity('edit', `Edited: ${filename}`, req.clientIp, req.user?.username);
+        addNotification('file_edited', `${filename} dosyasi duzenlendi`, { file: filename, user: req.user?.username });
         res.json({ message: 'File saved', type: getFileType(filename) });
     } catch (e) {
         res.status(500).json({ error: 'Could not save file' });
+    }
+});
+
+// ============================================================================
+// CSRF TOKEN ROUTE
+// ============================================================================
+
+app.get('/api/csrf-token', (req, res) => {
+    const token = crypto.randomBytes(32).toString('hex');
+    res.json({ csrfToken: token });
+});
+
+// ============================================================================
+// CHECKSUM ROUTES
+// ============================================================================
+
+app.get('/api/checksum/:filename(*)', authenticateToken, async (req, res) => {
+    const filename = req.params.filename;
+    const parentPath = req.query.parentPath || '';
+    const algorithm = req.query.algorithm || 'sha256';
+    const filePath = safeResolvePath(path.join(parentPath, filename));
+
+    if (!filePath || !fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'File not found' });
+    }
+
+    try {
+        const stats = fs.statSync(filePath);
+        if (stats.isDirectory()) {
+            return res.status(400).json({ error: 'Cannot compute checksum for directories' });
+        }
+        const checksum = await computeFileChecksum(filePath, algorithm);
+        res.json({ checksum, algorithm, file: filename, size: stats.size });
+    } catch (e) {
+        res.status(500).json({ error: 'Could not compute checksum' });
+    }
+});
+
+// ============================================================================
+// FILE VERSIONS ROUTES
+// ============================================================================
+
+app.get('/api/versions/:filename(*)', authenticateToken, (req, res) => {
+    const filename = req.params.filename;
+    const parentPath = req.query.parentPath || '';
+    const relativePath = path.join(parentPath, filename);
+
+    const versions = fileVersions[relativePath] || [];
+    res.json(versions);
+});
+
+app.post('/api/versions/:filename(*)/restore/:versionId', authenticateToken, (req, res) => {
+    const filename = req.params.filename;
+    const versionId = req.params.versionId;
+    const parentPath = req.query.parentPath || '';
+    const relativePath = path.join(parentPath, filename);
+    const filePath = safeResolvePath(relativePath);
+
+    if (!filePath) {
+        return res.status(400).json({ error: 'Invalid file path' });
+    }
+
+    const versions = fileVersions[relativePath] || [];
+    const version = versions.find(v => v.id === versionId);
+
+    if (!version) {
+        return res.status(404).json({ error: 'Version not found' });
+    }
+
+    const versionPath = path.join(VERSIONS_DIR, versionId + version.ext);
+    if (!fs.existsSync(versionPath)) {
+        return res.status(404).json({ error: 'Version file not found' });
+    }
+
+    try {
+        // Save current version before restoring
+        if (fs.existsSync(filePath)) {
+            saveFileVersion(filePath, relativePath);
+        }
+        fs.copyFileSync(versionPath, filePath);
+        logActivity('version_restore', `Restored version of: ${filename}`, req.clientIp, req.user?.username);
+        res.json({ message: 'Version restored' });
+    } catch (e) {
+        res.status(500).json({ error: 'Could not restore version' });
+    }
+});
+
+app.delete('/api/versions/:filename(*)', authenticateToken, (req, res) => {
+    const filename = req.params.filename;
+    const parentPath = req.query.parentPath || '';
+    const relativePath = path.join(parentPath, filename);
+
+    const versions = fileVersions[relativePath] || [];
+    versions.forEach(v => {
+        const vp = path.join(VERSIONS_DIR, v.id + v.ext);
+        if (fs.existsSync(vp)) fs.unlinkSync(vp);
+    });
+    delete fileVersions[relativePath];
+    saveData(DATA_FILES.fileVersions, fileVersions);
+
+    res.json({ message: 'All versions deleted' });
+});
+
+// ============================================================================
+// COMMENTS ROUTES
+// ============================================================================
+
+app.get('/api/comments/:filename(*)', authenticateToken, (req, res) => {
+    const filename = req.params.filename;
+    const parentPath = req.query.parentPath || '';
+    const relativePath = path.join(parentPath, filename);
+
+    res.json(comments[relativePath] || []);
+});
+
+app.post('/api/comments/:filename(*)', authenticateToken, (req, res) => {
+    const filename = req.params.filename;
+    const parentPath = req.query.parentPath || '';
+    const { text } = req.body;
+    const relativePath = path.join(parentPath, filename);
+
+    if (!text || !text.trim()) {
+        return res.status(400).json({ error: 'Comment text required' });
+    }
+
+    if (!comments[relativePath]) comments[relativePath] = [];
+
+    const comment = {
+        id: uuidv4(),
+        text: text.trim(),
+        user: req.user?.username || 'anonymous',
+        timestamp: new Date().toISOString()
+    };
+
+    comments[relativePath].push(comment);
+    saveData(DATA_FILES.comments, comments);
+
+    res.json({ message: 'Comment added', comment });
+});
+
+app.delete('/api/comments/:filename(*)', authenticateToken, (req, res) => {
+    const filename = req.params.filename;
+    const parentPath = req.query.parentPath || '';
+    const commentId = req.query.commentId;
+    const relativePath = path.join(parentPath, filename);
+
+    if (!comments[relativePath]) {
+        return res.status(404).json({ error: 'No comments found' });
+    }
+
+    comments[relativePath] = comments[relativePath].filter(c => c.id !== commentId);
+    if (comments[relativePath].length === 0) delete comments[relativePath];
+    saveData(DATA_FILES.comments, comments);
+
+    res.json({ message: 'Comment deleted' });
+});
+
+// ============================================================================
+// BATCH OPERATIONS ROUTES
+// ============================================================================
+
+// Batch move
+app.post('/api/batch/move', authenticateToken, (req, res) => {
+    const { items, destination } = req.body;
+    if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'Items array required' });
+    }
+
+    const destDir = safeResolvePath(destination || '');
+    if (!destDir || !fs.existsSync(destDir)) {
+        return res.status(400).json({ error: 'Invalid destination' });
+    }
+
+    const results = { moved: [], failed: [] };
+
+    items.forEach(item => {
+        const sourcePath = safeResolvePath(item);
+        if (!sourcePath || !fs.existsSync(sourcePath)) {
+            results.failed.push({ item, error: 'Not found' });
+            return;
+        }
+        const itemName = path.basename(sourcePath);
+        const destPath = path.join(destDir, itemName);
+
+        try {
+            if (fs.existsSync(destPath)) {
+                results.failed.push({ item, error: 'Already exists at destination' });
+                return;
+            }
+            fs.renameSync(sourcePath, destPath);
+            results.moved.push(item);
+        } catch (e) {
+            results.failed.push({ item, error: e.message });
+        }
+    });
+
+    io.emit('files:batch_moved', { items: results.moved, destination });
+    logActivity('batch_move', `Batch moved ${results.moved.length} items to ${destination}`, req.clientIp, req.user?.username);
+
+    res.json(results);
+});
+
+// Batch tag
+app.post('/api/batch/tag', authenticateToken, (req, res) => {
+    const { items, tag, action = 'add' } = req.body;
+    if (!items || !Array.isArray(items) || !tag) {
+        return res.status(400).json({ error: 'Items array and tag required' });
+    }
+
+    items.forEach(item => {
+        if (action === 'add') {
+            if (!tags[item]) tags[item] = [];
+            if (!tags[item].includes(tag)) tags[item].push(tag);
+        } else if (action === 'remove') {
+            if (tags[item]) {
+                tags[item] = tags[item].filter(t => t !== tag);
+                if (tags[item].length === 0) delete tags[item];
+            }
+        }
+    });
+
+    saveData(DATA_FILES.tags, tags);
+    logActivity('batch_tag', `Batch ${action} tag "${tag}" on ${items.length} items`, req.clientIp, req.user?.username);
+
+    res.json({ message: `Tag ${action}ed on ${items.length} items` });
+});
+
+// Batch rename
+app.post('/api/batch/rename', authenticateToken, (req, res) => {
+    const { items, pattern, replacement, parentPath = '' } = req.body;
+    if (!items || !Array.isArray(items) || !pattern) {
+        return res.status(400).json({ error: 'Items array and pattern required' });
+    }
+
+    const results = { renamed: [], failed: [] };
+    const regex = new RegExp(pattern, 'g');
+
+    items.forEach(item => {
+        const newName = item.replace(regex, replacement || '');
+        if (newName === item || !newName) {
+            results.failed.push({ item, error: 'No change or empty name' });
+            return;
+        }
+
+        const oldPath = safeResolvePath(path.join(parentPath, item));
+        const newPath = safeResolvePath(path.join(parentPath, newName));
+
+        if (!oldPath || !newPath || !fs.existsSync(oldPath)) {
+            results.failed.push({ item, error: 'Invalid path' });
+            return;
+        }
+
+        try {
+            if (fs.existsSync(newPath)) {
+                results.failed.push({ item, error: 'Target already exists' });
+                return;
+            }
+            fs.renameSync(oldPath, newPath);
+            results.renamed.push({ from: item, to: newName });
+        } catch (e) {
+            results.failed.push({ item, error: e.message });
+        }
+    });
+
+    logActivity('batch_rename', `Batch renamed ${results.renamed.length} items`, req.clientIp, req.user?.username);
+    res.json(results);
+});
+
+// ============================================================================
+// SEARCH HISTORY ROUTES
+// ============================================================================
+
+app.get('/api/search/history', authenticateToken, (req, res) => {
+    res.json(searchHistory);
+});
+
+app.post('/api/search/history', authenticateToken, (req, res) => {
+    const { query, filters } = req.body;
+    if (!query) return res.status(400).json({ error: 'Query required' });
+
+    const entry = {
+        id: uuidv4(),
+        query,
+        filters: filters || {},
+        timestamp: new Date().toISOString(),
+        user: req.user?.username || 'anonymous'
+    };
+
+    // Remove duplicate queries
+    searchHistory = searchHistory.filter(s => s.query !== query);
+    searchHistory.unshift(entry);
+    if (searchHistory.length > 50) searchHistory = searchHistory.slice(0, 50);
+    saveData(DATA_FILES.searchHistory, searchHistory);
+
+    res.json({ message: 'Search saved', entry });
+});
+
+app.delete('/api/search/history', authenticateToken, (req, res) => {
+    const { id } = req.query;
+    if (id) {
+        searchHistory = searchHistory.filter(s => s.id !== id);
+    } else {
+        searchHistory = [];
+    }
+    saveData(DATA_FILES.searchHistory, searchHistory);
+    res.json({ message: 'Search history cleared' });
+});
+
+// ============================================================================
+// NOTIFICATION ROUTES
+// ============================================================================
+
+app.get('/api/notifications', authenticateToken, (req, res) => {
+    const { unreadOnly } = req.query;
+    let result = notifications;
+    if (unreadOnly === 'true') {
+        result = notifications.filter(n => !n.read);
+    }
+    res.json(result);
+});
+
+app.put('/api/notifications/:id/read', authenticateToken, (req, res) => {
+    const notification = notifications.find(n => n.id === req.params.id);
+    if (notification) {
+        notification.read = true;
+        saveData(DATA_FILES.notifications, notifications);
+    }
+    res.json({ message: 'Notification marked as read' });
+});
+
+app.put('/api/notifications/read-all', authenticateToken, (req, res) => {
+    notifications.forEach(n => n.read = true);
+    saveData(DATA_FILES.notifications, notifications);
+    res.json({ message: 'All notifications marked as read' });
+});
+
+app.delete('/api/notifications', authenticateToken, (req, res) => {
+    notifications = [];
+    saveData(DATA_FILES.notifications, notifications);
+    res.json({ message: 'All notifications cleared' });
+});
+
+// ============================================================================
+// VIDEO THUMBNAIL ROUTE
+// ============================================================================
+
+app.get('/api/thumbnail/:filename(*)', (req, res) => {
+    const filename = req.params.filename;
+    const parentPath = req.query.parentPath || '';
+    const filePath = safeResolvePath(path.join(parentPath, filename));
+
+    if (!filePath || !fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'File not found' });
+    }
+
+    const cacheKey = `thumb_${filePath}`;
+    const cached = thumbnailCache.get(cacheKey);
+    if (cached && fs.existsSync(cached)) {
+        return res.sendFile(cached);
+    }
+
+    const thumbPath = path.join(CONFIG.DATA_DIR, 'thumbnails');
+    if (!fs.existsSync(thumbPath)) fs.mkdirSync(thumbPath, { recursive: true });
+
+    const thumbFile = path.join(thumbPath, crypto.createHash('md5').update(filePath).digest('hex') + '.jpg');
+
+    if (fs.existsSync(thumbFile)) {
+        thumbnailCache.set(cacheKey, thumbFile);
+        return res.sendFile(thumbFile);
+    }
+
+    // Generate thumbnail with ffmpeg
+    execFile('ffmpeg', [
+        '-i', filePath,
+        '-ss', '00:00:01',
+        '-vframes', '1',
+        '-vf', 'scale=320:-1',
+        '-q:v', '5',
+        '-y',
+        thumbFile
+    ], { timeout: 10000 }, (err) => {
+        if (err) {
+            return res.status(500).json({ error: 'Could not generate thumbnail' });
+        }
+        thumbnailCache.set(cacheKey, thumbFile);
+        res.sendFile(thumbFile);
+    });
+});
+
+// ============================================================================
+// BACKUP / RESTORE ROUTES
+// ============================================================================
+
+app.post('/api/admin/backup', authenticateToken, requireAdmin, (req, res) => {
+    try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const backupName = `backup-${timestamp}`;
+        const backupDir = path.join(BACKUP_DIR, backupName);
+        fs.mkdirSync(backupDir, { recursive: true });
+
+        // Backup all data files
+        Object.entries(DATA_FILES).forEach(([key, filePath]) => {
+            if (fs.existsSync(filePath)) {
+                fs.copyFileSync(filePath, path.join(backupDir, path.basename(filePath)));
+            }
+        });
+
+        // Save backup metadata
+        const meta = {
+            name: backupName,
+            timestamp: new Date().toISOString(),
+            dataFiles: Object.keys(DATA_FILES),
+            size: getDirectorySizeRecursive(backupDir)
+        };
+        fs.writeFileSync(path.join(backupDir, 'backup-meta.json'), JSON.stringify(meta, null, 2));
+
+        logActivity('backup', `Created backup: ${backupName}`, req.clientIp, req.user?.username);
+        addNotification('backup', `Yedekleme olusturuldu: ${backupName}`);
+
+        res.json({ message: 'Backup created', backup: meta });
+    } catch (e) {
+        res.status(500).json({ error: 'Could not create backup: ' + e.message });
+    }
+});
+
+app.get('/api/admin/backups', authenticateToken, requireAdmin, (req, res) => {
+    try {
+        const backups = [];
+        if (fs.existsSync(BACKUP_DIR)) {
+            const dirs = fs.readdirSync(BACKUP_DIR);
+            dirs.forEach(dir => {
+                const metaPath = path.join(BACKUP_DIR, dir, 'backup-meta.json');
+                if (fs.existsSync(metaPath)) {
+                    backups.push(JSON.parse(fs.readFileSync(metaPath, 'utf8')));
+                }
+            });
+        }
+        backups.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        res.json(backups);
+    } catch (e) {
+        res.status(500).json({ error: 'Could not list backups' });
+    }
+});
+
+app.post('/api/admin/backup/:name/restore', authenticateToken, requireAdmin, (req, res) => {
+    const backupName = req.params.name;
+    const backupDir = path.join(BACKUP_DIR, backupName);
+
+    if (!fs.existsSync(backupDir)) {
+        return res.status(404).json({ error: 'Backup not found' });
+    }
+
+    try {
+        // Restore all data files
+        const files = fs.readdirSync(backupDir);
+        files.forEach(file => {
+            if (file === 'backup-meta.json') return;
+            const sourcePath = path.join(backupDir, file);
+            const targetPath = path.join(CONFIG.DATA_DIR, file);
+            fs.copyFileSync(sourcePath, targetPath);
+        });
+
+        // Reload data stores
+        users = loadData(DATA_FILES.users, { admin: { password: bcrypt.hashSync('admin', 10), role: 'admin' } });
+        shares = loadData(DATA_FILES.shares, {});
+        favorites = loadData(DATA_FILES.favorites, []);
+        recentFiles = loadData(DATA_FILES.recent, []);
+        tags = loadData(DATA_FILES.tags, {});
+        activityLog = loadData(DATA_FILES.activity, []);
+        downloadCounts = loadData(DATA_FILES.downloads, {});
+        ipConfig = loadData(DATA_FILES.ipConfig, { whitelist: [], blacklist: [], mode: 'none' });
+        settings = loadData(DATA_FILES.settings, { authEnabled: false, notificationsEnabled: false });
+        comments = loadData(DATA_FILES.comments, {});
+        fileVersions = loadData(DATA_FILES.fileVersions, {});
+        searchHistory = loadData(DATA_FILES.searchHistory, []);
+        notifications = loadData(DATA_FILES.notifications, []);
+
+        logActivity('restore', `Restored backup: ${backupName}`, req.clientIp, req.user?.username);
+        addNotification('restore', `Yedek geri yuklendi: ${backupName}`);
+
+        res.json({ message: 'Backup restored successfully' });
+    } catch (e) {
+        res.status(500).json({ error: 'Could not restore backup: ' + e.message });
+    }
+});
+
+app.delete('/api/admin/backup/:name', authenticateToken, requireAdmin, (req, res) => {
+    const backupName = req.params.name;
+    const backupDir = path.join(BACKUP_DIR, backupName);
+
+    if (!fs.existsSync(backupDir)) {
+        return res.status(404).json({ error: 'Backup not found' });
+    }
+
+    try {
+        fs.rmSync(backupDir, { recursive: true, force: true });
+        res.json({ message: 'Backup deleted' });
+    } catch (e) {
+        res.status(500).json({ error: 'Could not delete backup' });
+    }
+});
+
+// ============================================================================
+// ADMIN CHART DATA ROUTE
+// ============================================================================
+
+app.get('/api/admin/stats/charts', authenticateToken, requireAdmin, (req, res) => {
+    const { days = 7 } = req.query;
+    const now = new Date();
+    const startDate = new Date(now.getTime() - parseInt(days) * 24 * 60 * 60 * 1000);
+
+    // Activity trends by day
+    const dailyActivity = {};
+    for (let i = 0; i < parseInt(days); i++) {
+        const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+        const dateKey = date.toISOString().split('T')[0];
+        dailyActivity[dateKey] = { uploads: 0, downloads: 0, deletes: 0, edits: 0, shares: 0 };
+    }
+
+    activityLog.forEach(entry => {
+        const entryDate = new Date(entry.timestamp);
+        if (entryDate >= startDate) {
+            const dateKey = entryDate.toISOString().split('T')[0];
+            if (dailyActivity[dateKey]) {
+                if (entry.action === 'upload') dailyActivity[dateKey].uploads++;
+                else if (entry.action === 'download' || entry.action === 'share_download') dailyActivity[dateKey].downloads++;
+                else if (entry.action === 'delete' || entry.action === 'permanent_delete') dailyActivity[dateKey].deletes++;
+                else if (entry.action === 'edit') dailyActivity[dateKey].edits++;
+                else if (entry.action === 'share') dailyActivity[dateKey].shares++;
+            }
+        }
+    });
+
+    // File type distribution
+    const typeDistribution = {};
+    function countFileTypes(dir) {
+        try {
+            const items = fs.readdirSync(dir);
+            items.forEach(item => {
+                if (item.startsWith('.')) return;
+                const itemPath = path.join(dir, item);
+                const stats = fs.statSync(itemPath);
+                if (stats.isDirectory()) {
+                    countFileTypes(itemPath);
+                } else {
+                    const type = getFileType(item);
+                    typeDistribution[type] = (typeDistribution[type] || 0) + 1;
+                }
+            });
+        } catch (e) { }
+    }
+    countFileTypes(CONFIG.UPLOAD_DIR);
+
+    // Storage trend (approximate from activity)
+    const storageTrend = Object.keys(dailyActivity).sort().map(date => ({
+        date,
+        ...dailyActivity[date]
+    }));
+
+    // User activity breakdown
+    const userActivity = {};
+    activityLog.forEach(entry => {
+        const user = entry.user || 'anonymous';
+        userActivity[user] = (userActivity[user] || 0) + 1;
+    });
+
+    res.json({
+        dailyActivity: storageTrend,
+        typeDistribution,
+        userActivity
+    });
+});
+
+// ============================================================================
+// USER PERMISSIONS MANAGEMENT (RBAC)
+// ============================================================================
+
+app.get('/api/admin/users/:username/permissions', authenticateToken, requireAdmin, (req, res) => {
+    const { username } = req.params;
+    const user = users[username];
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    res.json({
+        username,
+        role: user.role,
+        homeDir: user.homeDir,
+        permissions: user.permissions || { read: true, write: true, delete: false, share: true }
+    });
+});
+
+app.put('/api/admin/users/:username/permissions', authenticateToken, requireAdmin, (req, res) => {
+    const { username } = req.params;
+    const { permissions, role, homeDir } = req.body;
+    const user = users[username];
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (permissions) user.permissions = { ...user.permissions, ...permissions };
+    if (role && username !== 'admin') user.role = role;
+    if (homeDir) user.homeDir = homeDir;
+
+    saveData(DATA_FILES.users, users);
+    logActivity('permissions', `Updated permissions for: ${username}`, req.clientIp, req.user?.username);
+
+    res.json({ message: 'Permissions updated', user: { username, role: user.role, permissions: user.permissions, homeDir: user.homeDir } });
+});
+
+// ============================================================================
+// CLIPBOARD PASTE UPLOAD ROUTE
+// ============================================================================
+
+app.post('/api/upload/paste', authenticateToken, (req, res) => {
+    const { data, filename, parentPath = '' } = req.body;
+
+    if (!data) {
+        return res.status(400).json({ error: 'No data provided' });
+    }
+
+    try {
+        // data is a base64 encoded string
+        const matches = data.match(/^data:(.+);base64,(.+)$/);
+        if (!matches) {
+            return res.status(400).json({ error: 'Invalid data format' });
+        }
+
+        const mimeType = matches[1];
+        const base64Data = matches[2];
+        const buffer = Buffer.from(base64Data, 'base64');
+
+        // Generate filename if not provided
+        const ext = mimeType.split('/')[1] || 'png';
+        const finalName = filename || `paste-${Date.now()}.${ext}`;
+
+        const targetDir = path.join(CONFIG.UPLOAD_DIR, parentPath.replace(/^\/+/, '').replace(/\.\./g, ''));
+        if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+        const filePath = path.join(targetDir, finalName);
+        fs.writeFileSync(filePath, buffer);
+
+        const fileData = {
+            name: finalName,
+            size: buffer.length,
+            date: new Date(),
+            type: getFileType(finalName),
+            isFolder: false
+        };
+
+        io.emit('file:uploaded', { file: fileData, parentPath: parentPath || '/' });
+        logActivity('upload', `Clipboard paste: ${finalName} (${formatBytes(buffer.length)})`, req.clientIp, req.user?.username);
+        addNotification('upload', `Panodan yapistirma ile yuklendi: ${finalName}`);
+
+        res.json({ message: 'File uploaded from clipboard', filename: finalName, parentPath });
+    } catch (e) {
+        res.status(500).json({ error: 'Could not save clipboard data: ' + e.message });
     }
 });
 
@@ -2102,3 +2855,5 @@ server.listen(CONFIG.PORT, '0.0.0.0', () => {
     console.log('╚═══════════════════════════════════════════════════════════════╝');
     console.log('');
 });
+
+module.exports = server;

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Panel - BlackDrop</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         :root {
             --sidebar-width: 260px;
@@ -812,6 +813,14 @@
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                     Genel Ayarlar
                 </a>
+                <a class="nav-link" data-section="backup">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+                    Yedekleme
+                </a>
+                <a class="nav-link" data-section="users">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    Kullanicilar
+                </a>
             </div>
         </nav>
         
@@ -876,9 +885,21 @@
                     </div>
                 </div>
             </div>
-            
+
+            <!-- Charts Section -->
+            <div class="charts-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.5rem;">
+                <div class="admin-card">
+                    <h3>Aktivite Trendi</h3>
+                    <canvas id="activityChart" height="200"></canvas>
+                </div>
+                <div class="admin-card">
+                    <h3>Dosya Tipleri Dagilimi</h3>
+                    <canvas id="typeChart" height="200"></canvas>
+                </div>
+            </div>
+
             <div class="admin-card">
-                <h3>📋 Son Aktiviteler</h3>
+                <h3>Son Aktiviteler</h3>
                 <div class="activity-list" id="recentActivity">
                     <p style="color: var(--text-tertiary)">Yükleniyor...</p>
                 </div>
@@ -1197,6 +1218,61 @@
                         <span class="system-label">Geliştirici</span>
                         <span class="system-value">BlackDrop Team</span>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Backup Section -->
+        <div id="backup" class="admin-content">
+            <div class="admin-header">
+                <h2>Yedekleme / Geri Yukleme</h2>
+                <p>Veri yedeklerini yonetin</p>
+            </div>
+
+            <div class="admin-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3>Yedekleme Olustur</h3>
+                    <button class="btn btn-primary" onclick="createBackup()">Yeni Yedek Olustur</button>
+                </div>
+                <p style="color: var(--text-tertiary)">Tum ayarlar, kullanici verileri, etiketler, yorumlar ve aktivite loglari yedeklenir.</p>
+            </div>
+
+            <div class="admin-card">
+                <h3>Mevcut Yedekler</h3>
+                <div id="backupList">
+                    <p style="color: var(--text-tertiary)">Yukleniyor...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Users Section -->
+        <div id="users" class="admin-content">
+            <div class="admin-header">
+                <h2>Kullanici Yonetimi</h2>
+                <p>Kullanicilari ve izinleri yonetin</p>
+            </div>
+
+            <div class="admin-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3>Yeni Kullanici Ekle</h3>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.75rem; align-items: end;">
+                    <div>
+                        <label style="display: block; margin-bottom: 0.25rem; color: var(--text-secondary); font-size: 0.85rem;">Kullanici Adi</label>
+                        <input type="text" id="newUsername" class="form-input" placeholder="kullanici_adi">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 0.25rem; color: var(--text-secondary); font-size: 0.85rem;">Sifre</label>
+                        <input type="password" id="newUserPassword" class="form-input" placeholder="Sifre">
+                    </div>
+                    <button class="btn btn-primary" onclick="createUser()">Ekle</button>
+                </div>
+            </div>
+
+            <div class="admin-card">
+                <h3>Kullanicilar</h3>
+                <div id="userList">
+                    <p style="color: var(--text-tertiary)">Yukleniyor...</p>
                 </div>
             </div>
         </div>
@@ -1808,12 +1884,228 @@
             localStorage.setItem('admin-theme', isDark ? 'dark' : 'light');
         }
         
+        // ========== CHARTS ==========
+        let activityChartInstance = null;
+        let typeChartInstance = null;
+
+        async function loadCharts() {
+            try {
+                const res = await fetch('/api/admin/stats/charts?days=7', { headers: getAuthHeaders() });
+                if (!res.ok) return;
+                const data = await res.json();
+
+                // Activity trend chart
+                const activityCtx = document.getElementById('activityChart')?.getContext('2d');
+                if (activityCtx) {
+                    if (activityChartInstance) activityChartInstance.destroy();
+                    const labels = data.dailyActivity.map(d => d.date.slice(5));
+                    activityChartInstance = new Chart(activityCtx, {
+                        type: 'line',
+                        data: {
+                            labels,
+                            datasets: [
+                                { label: 'Upload', data: data.dailyActivity.map(d => d.uploads), borderColor: '#8b5cf6', backgroundColor: 'rgba(139,92,246,0.1)', fill: true, tension: 0.4 },
+                                { label: 'Download', data: data.dailyActivity.map(d => d.downloads), borderColor: '#06b6d4', backgroundColor: 'rgba(6,182,212,0.1)', fill: true, tension: 0.4 },
+                                { label: 'Delete', data: data.dailyActivity.map(d => d.deletes), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)', fill: true, tension: 0.4 }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: { legend: { labels: { color: '#94a3b8' } } },
+                            scales: {
+                                x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,0.1)' } },
+                                y: { ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,0.1)' }, beginAtZero: true }
+                            }
+                        }
+                    });
+                }
+
+                // Type distribution chart
+                const typeCtx = document.getElementById('typeChart')?.getContext('2d');
+                if (typeCtx) {
+                    if (typeChartInstance) typeChartInstance.destroy();
+                    const typeLabels = Object.keys(data.typeDistribution);
+                    const typeValues = Object.values(data.typeDistribution);
+                    const colors = ['#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#6366f1', '#14b8a6'];
+                    typeChartInstance = new Chart(typeCtx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: typeLabels,
+                            datasets: [{ data: typeValues, backgroundColor: colors.slice(0, typeLabels.length), borderWidth: 0 }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 12 } } }
+                        }
+                    });
+                }
+            } catch (e) { console.error('Charts error:', e); }
+        }
+
+        // ========== BACKUP ==========
+        async function loadBackups() {
+            try {
+                const res = await fetch('/api/admin/backups', { headers: getAuthHeaders() });
+                if (!res.ok) return;
+                const backups = await res.json();
+                const container = document.getElementById('backupList');
+                if (backups.length === 0) {
+                    container.innerHTML = '<p style="color: var(--text-tertiary)">Henuz yedek yok</p>';
+                    return;
+                }
+                container.innerHTML = backups.map(b => `
+                    <div class="activity-item" style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong>${b.name}</strong>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary)">${formatDate(b.timestamp)} - ${formatSize(b.size || 0)}</div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-primary btn-sm" onclick="restoreBackup('${b.name}')">Geri Yukle</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteBackup('${b.name}')">Sil</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) { }
+        }
+
+        async function createBackup() {
+            try {
+                const res = await fetch('/api/admin/backup', { method: 'POST', headers: getAuthHeaders() });
+                if (res.ok) {
+                    showToast('Yedek olusturuldu', 'success');
+                    loadBackups();
+                } else {
+                    showToast('Yedekleme hatasi', 'error');
+                }
+            } catch (e) { showToast('Yedekleme hatasi', 'error'); }
+        }
+
+        async function restoreBackup(name) {
+            if (!confirm('Bu yedegi geri yuklemek istediginize emin misiniz? Mevcut veriler degistirilecek.')) return;
+            try {
+                const res = await fetch(`/api/admin/backup/${name}/restore`, { method: 'POST', headers: getAuthHeaders() });
+                if (res.ok) {
+                    showToast('Yedek geri yuklendi', 'success');
+                    loadDashboard();
+                } else {
+                    showToast('Geri yukleme hatasi', 'error');
+                }
+            } catch (e) { showToast('Geri yukleme hatasi', 'error'); }
+        }
+
+        async function deleteBackup(name) {
+            if (!confirm('Bu yedegi silmek istediginize emin misiniz?')) return;
+            try {
+                await fetch(`/api/admin/backup/${name}`, { method: 'DELETE', headers: getAuthHeaders() });
+                showToast('Yedek silindi', 'success');
+                loadBackups();
+            } catch (e) { }
+        }
+
+        // ========== USERS / RBAC ==========
+        async function loadUsers() {
+            try {
+                const res = await fetch('/api/admin/users', { headers: getAuthHeaders() });
+                if (!res.ok) return;
+                const usersData = await res.json();
+                const container = document.getElementById('userList');
+                container.innerHTML = usersData.map(u => `
+                    <div class="activity-item" style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--border);">
+                        <div>
+                            <strong>${u.username}</strong>
+                            <span class="badge" style="margin-left: 0.5rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; background: ${u.role === 'admin' ? 'var(--accent)' : '#374151'}; color: white;">${u.role}</span>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.25rem;">
+                                ${u.permissions ? `Okuma: ${u.permissions.read ? 'Evet' : 'Hayir'} | Yazma: ${u.permissions.write ? 'Evet' : 'Hayir'} | Silme: ${u.permissions.delete ? 'Evet' : 'Hayir'} | Paylasim: ${u.permissions.share ? 'Evet' : 'Hayir'}` : ''}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            ${u.username !== 'admin' ? `
+                                <button class="btn btn-secondary btn-sm" onclick="editUserPermissions('${u.username}')">Izinler</button>
+                                <button class="btn btn-danger btn-sm" onclick="deleteUser('${u.username}')">Sil</button>
+                            ` : '<span style="color: var(--text-tertiary); font-size: 0.8rem;">Super Admin</span>'}
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) { }
+        }
+
+        async function createUser() {
+            const username = document.getElementById('newUsername').value.trim();
+            const password = document.getElementById('newUserPassword').value;
+            if (!username || !password) { showToast('Kullanici adi ve sifre gerekli', 'error'); return; }
+
+            try {
+                const res = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ username, password, role: 'user' })
+                });
+                if (res.ok) {
+                    showToast('Kullanici olusturuldu', 'success');
+                    document.getElementById('newUsername').value = '';
+                    document.getElementById('newUserPassword').value = '';
+                    loadUsers();
+                } else {
+                    const data = await res.json();
+                    showToast(data.error || 'Hata', 'error');
+                }
+            } catch (e) { showToast('Hata', 'error'); }
+        }
+
+        async function deleteUser(username) {
+            if (!confirm(`"${username}" kullanicisini silmek istediginize emin misiniz?`)) return;
+            try {
+                await fetch(`/api/admin/users/${username}`, { method: 'DELETE', headers: getAuthHeaders() });
+                showToast('Kullanici silindi', 'success');
+                loadUsers();
+            } catch (e) { }
+        }
+
+        async function editUserPermissions(username) {
+            try {
+                const res = await fetch(`/api/admin/users/${username}/permissions`, { headers: getAuthHeaders() });
+                if (!res.ok) return;
+                const userData = await res.json();
+                const perms = userData.permissions || {};
+
+                const newPerms = {
+                    read: confirm(`${username} - Okuma izni verilsin mi?`),
+                    write: confirm(`${username} - Yazma izni verilsin mi?`),
+                    delete: confirm(`${username} - Silme izni verilsin mi?`),
+                    share: confirm(`${username} - Paylasim izni verilsin mi?`)
+                };
+
+                await fetch(`/api/admin/users/${username}/permissions`, {
+                    method: 'PUT',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ permissions: newPerms })
+                });
+                showToast('Izinler guncellendi', 'success');
+                loadUsers();
+            } catch (e) { showToast('Hata', 'error'); }
+        }
+
+        // ========== MODIFY LOAD DASHBOARD ==========
+        const _originalLoadDashboard = loadDashboard;
+        loadDashboard = async function() {
+            await _originalLoadDashboard();
+            loadCharts();
+        };
+
+        // ========== MODIFY SHOW SECTION ==========
+        const _originalShowSection = showSection;
+        showSection = function(section) {
+            _originalShowSection(section);
+            if (section === 'backup') loadBackups();
+            if (section === 'users') loadUsers();
+        };
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             // Load theme
             const savedTheme = localStorage.getItem('admin-theme') || 'dark';
             document.documentElement.setAttribute('data-theme', savedTheme);
-            
+
             // Load dashboard
             loadDashboard();
         });

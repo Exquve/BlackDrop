@@ -542,6 +542,8 @@ function renderGrid(files) {
         if (file.type === 'image') {
             const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
             previewHtml = `<img src="/api/download/${encodeURIComponent(file.name)}?parentPath=${encodeURIComponent(parentPath)}" loading="lazy" alt="${file.name}">`;
+        } else if (file.type === 'video') {
+            previewHtml = `<img src="${getVideoThumbnailUrl(file.name)}" loading="lazy" alt="${file.name}" onerror="this.parentElement.innerHTML='${getIconForType('video').replace(/'/g, "\\'")}'">`;
         } else {
             previewHtml = getIconForType(file.type);
         }
@@ -620,11 +622,15 @@ function updateBulkActions() {
 
     if (selectedFiles.size > 1) {
         bulkBar.style.display = 'flex';
-        document.getElementById('selectedCount').textContent = `${selectedFiles.size} öğe seçili`;
+        document.getElementById('selectedCount').textContent = `${selectedFiles.size} oge secili`;
     } else {
         bulkBar.style.display = 'none';
     }
 }
+
+window.bulkMove = () => showBatchMoveModal();
+window.bulkTag = () => showBatchTagModal();
+window.bulkRename = () => showBatchRenameModal();
 
 window.bulkDelete = async () => {
     if (selectedFiles.size === 0) return;
@@ -1593,6 +1599,13 @@ function showProperties(filename) {
 
     contextMenu.style.display = 'none';
     propertiesModal?.classList.add('active');
+
+    // Load checksum
+    if (!file.isFolder) {
+        const propChecksum = document.getElementById('propChecksum');
+        if (propChecksum) propChecksum.textContent = 'Hesaplaniyor...';
+        showChecksum(filename);
+    }
 }
 
 window.closePropertiesModal = () => {
@@ -2422,3 +2435,549 @@ function handleSelectionEnd() {
 }
 
 document.addEventListener('DOMContentLoaded', initLassoSelection);
+
+// ============================================================================
+// i18n - INTERNATIONALIZATION SYSTEM
+// ============================================================================
+let currentLang = localStorage.getItem('blackdrop-lang') || 'en';
+let i18nStrings = {};
+
+async function loadLanguage(lang) {
+    try {
+        const res = await fetch(`/lang/${lang}.json`);
+        if (res.ok) {
+            i18nStrings = await res.json();
+            currentLang = lang;
+            localStorage.setItem('blackdrop-lang', lang);
+            applyTranslations();
+        }
+    } catch (e) {
+        console.error('Language load error:', e);
+    }
+}
+
+function t(key) {
+    return i18nStrings[key] || key;
+}
+
+function applyTranslations() {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (i18nStrings[key]) {
+            if (el.tagName === 'INPUT' && el.hasAttribute('placeholder')) {
+                el.placeholder = i18nStrings[key];
+            } else {
+                el.textContent = i18nStrings[key];
+            }
+        }
+    });
+}
+
+window.switchLanguage = (lang) => {
+    loadLanguage(lang);
+};
+
+// Load language on startup
+loadLanguage(currentLang);
+
+// ============================================================================
+// CLIPBOARD PASTE UPLOAD
+// ============================================================================
+document.addEventListener('paste', async (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of items) {
+        if (item.type.startsWith('image/')) {
+            e.preventDefault();
+            const blob = item.getAsFile();
+            if (!blob) continue;
+
+            const reader = new FileReader();
+            reader.onload = async () => {
+                const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+                try {
+                    const res = await fetch('/api/upload/paste', {
+                        method: 'POST',
+                        headers: getAuthHeaders(),
+                        body: JSON.stringify({
+                            data: reader.result,
+                            parentPath
+                        })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        showToast(`Panodan yapistirildi: ${data.filename}`, 'success');
+                    } else {
+                        showToast('Yapistirma basarisiz', 'error');
+                    }
+                } catch (err) {
+                    showToast('Yapistirma hatasi', 'error');
+                }
+            };
+            reader.readAsDataURL(blob);
+        }
+    }
+});
+
+// ============================================================================
+// NOTIFICATION SYSTEM
+// ============================================================================
+let notificationCount = 0;
+
+socket.on('notification:new', (notification) => {
+    notificationCount++;
+    updateNotificationBadge();
+    if (Notification.permission === 'granted') {
+        new Notification('BlackDrop', { body: notification.message, icon: '/favicon.ico' });
+    }
+    showToast(notification.message, 'info');
+});
+
+function updateNotificationBadge() {
+    const badge = document.getElementById('notificationBadge');
+    if (badge) {
+        badge.textContent = notificationCount;
+        badge.style.display = notificationCount > 0 ? 'flex' : 'none';
+    }
+}
+
+window.requestNotificationPermission = () => {
+    if ('Notification' in window) {
+        Notification.requestPermission();
+    }
+};
+
+window.showNotificationPanel = async () => {
+    const modal = document.getElementById('notificationModal');
+    if (!modal) return;
+
+    try {
+        const res = await fetch('/api/notifications', { headers: getAuthHeaders() });
+        if (res.ok) {
+            const items = await res.json();
+            const list = document.getElementById('notificationList');
+            if (items.length === 0) {
+                list.innerHTML = '<div class="empty-state"><p>Bildirim yok</p></div>';
+            } else {
+                list.innerHTML = items.map(n => `
+                    <div class="notification-item ${n.read ? 'read' : 'unread'}" onclick="markNotificationRead('${n.id}')">
+                        <div class="notification-icon">${getNotificationIcon(n.type)}</div>
+                        <div class="notification-content">
+                            <div class="notification-message">${n.message}</div>
+                            <div class="notification-time">${formatDate(n.timestamp)}</div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            notificationCount = 0;
+            updateNotificationBadge();
+        }
+    } catch (e) { }
+
+    modal.classList.add('active');
+};
+
+window.closeNotificationModal = () => {
+    document.getElementById('notificationModal')?.classList.remove('active');
+};
+
+window.markNotificationRead = async (id) => {
+    await fetch(`/api/notifications/${id}/read`, { method: 'PUT', headers: getAuthHeaders() });
+};
+
+window.markAllNotificationsRead = async () => {
+    await fetch('/api/notifications/read-all', { method: 'PUT', headers: getAuthHeaders() });
+    showNotificationPanel();
+};
+
+window.clearAllNotifications = async () => {
+    await fetch('/api/notifications', { method: 'DELETE', headers: getAuthHeaders() });
+    showNotificationPanel();
+};
+
+function getNotificationIcon(type) {
+    const icons = { upload: '📤', download: '📥', file_edited: '✏️', share: '🔗', backup: '💾', restore: '🔄' };
+    return icons[type] || '🔔';
+}
+
+// ============================================================================
+// BATCH OPERATIONS
+// ============================================================================
+window.showBatchMoveModal = () => {
+    if (selectedFiles.size === 0) return;
+    const modal = document.getElementById('batchMoveModal');
+    if (!modal) return;
+    document.getElementById('batchMoveCount').textContent = selectedFiles.size;
+    document.getElementById('batchMoveDestination').value = '';
+    modal.classList.add('active');
+};
+
+window.closeBatchMoveModal = () => {
+    document.getElementById('batchMoveModal')?.classList.remove('active');
+};
+
+window.confirmBatchMove = async () => {
+    const destination = document.getElementById('batchMoveDestination').value.trim();
+    if (!destination) { showToast('Hedef klasor gerekli', 'error'); return; }
+
+    const items = [...selectedFiles].map(name =>
+        currentPath === '/' ? name : `${currentPath.replace(/^\//, '')}/${name}`
+    );
+
+    try {
+        const res = await fetch('/api/batch/move', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ items, destination })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            showToast(`${data.moved.length} dosya tasindi`, 'success');
+            selectedFiles.clear();
+            updateBulkActions();
+            fetchContents();
+            closeBatchMoveModal();
+        }
+    } catch (e) { showToast('Tasima hatasi', 'error'); }
+};
+
+window.showBatchTagModal = () => {
+    if (selectedFiles.size === 0) return;
+    const modal = document.getElementById('batchTagModal');
+    if (!modal) return;
+    document.getElementById('batchTagCount').textContent = selectedFiles.size;
+    document.getElementById('batchTagInput').value = '';
+    modal.classList.add('active');
+};
+
+window.closeBatchTagModal = () => {
+    document.getElementById('batchTagModal')?.classList.remove('active');
+};
+
+window.confirmBatchTag = async (action = 'add') => {
+    const tag = document.getElementById('batchTagInput').value.trim();
+    if (!tag) { showToast('Etiket gerekli', 'error'); return; }
+
+    const items = [...selectedFiles].map(name =>
+        currentPath === '/' ? name : `${currentPath.replace(/^\//, '')}/${name}`
+    );
+
+    try {
+        const res = await fetch('/api/batch/tag', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ items, tag, action })
+        });
+        if (res.ok) {
+            showToast(`Etiket ${action === 'add' ? 'eklendi' : 'kaldirildi'}`, 'success');
+            loadTags();
+            fetchContents();
+            closeBatchTagModal();
+        }
+    } catch (e) { showToast('Etiket hatasi', 'error'); }
+};
+
+window.showBatchRenameModal = () => {
+    if (selectedFiles.size === 0) return;
+    const modal = document.getElementById('batchRenameModal');
+    if (!modal) return;
+    document.getElementById('batchRenameCount').textContent = selectedFiles.size;
+    document.getElementById('batchRenamePattern').value = '';
+    document.getElementById('batchRenameReplacement').value = '';
+    modal.classList.add('active');
+};
+
+window.closeBatchRenameModal = () => {
+    document.getElementById('batchRenameModal')?.classList.remove('active');
+};
+
+window.confirmBatchRename = async () => {
+    const pattern = document.getElementById('batchRenamePattern').value;
+    const replacement = document.getElementById('batchRenameReplacement').value;
+    if (!pattern) { showToast('Desen gerekli', 'error'); return; }
+
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+
+    try {
+        const res = await fetch('/api/batch/rename', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ items: [...selectedFiles], pattern, replacement, parentPath })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            showToast(`${data.renamed.length} dosya yeniden adlandirildi`, 'success');
+            selectedFiles.clear();
+            updateBulkActions();
+            fetchContents();
+            closeBatchRenameModal();
+        }
+    } catch (e) { showToast('Toplu adlandirma hatasi', 'error'); }
+};
+
+// ============================================================================
+// FILE COMMENTS
+// ============================================================================
+window.showCommentsModal = async (filename) => {
+    const modal = document.getElementById('commentsModal');
+    if (!modal) return;
+
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+    document.getElementById('commentsFileName').textContent = filename;
+    document.getElementById('commentInput').value = '';
+    modal.setAttribute('data-filename', filename);
+
+    try {
+        const res = await fetch(`/api/comments/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}`, {
+            headers: getAuthHeaders()
+        });
+        if (res.ok) {
+            const cmts = await res.json();
+            const list = document.getElementById('commentsList');
+            if (cmts.length === 0) {
+                list.innerHTML = '<p class="text-muted">Henuz yorum yok</p>';
+            } else {
+                list.innerHTML = cmts.map(c => `
+                    <div class="comment-item">
+                        <div class="comment-header">
+                            <span class="comment-user">${c.user}</span>
+                            <span class="comment-time">${formatDate(c.timestamp)}</span>
+                            <button class="btn-icon-sm" onclick="deleteComment('${filename}', '${c.id}')" title="Sil">&times;</button>
+                        </div>
+                        <div class="comment-text">${escapeHtml(c.text)}</div>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (e) { }
+
+    modal.classList.add('active');
+};
+
+window.closeCommentsModal = () => {
+    document.getElementById('commentsModal')?.classList.remove('active');
+};
+
+window.addComment = async () => {
+    const modal = document.getElementById('commentsModal');
+    const filename = modal?.getAttribute('data-filename');
+    const text = document.getElementById('commentInput').value.trim();
+    if (!text || !filename) return;
+
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+
+    try {
+        const res = await fetch(`/api/comments/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ text })
+        });
+        if (res.ok) {
+            showToast('Yorum eklendi', 'success');
+            showCommentsModal(filename);
+        }
+    } catch (e) { showToast('Yorum eklenemedi', 'error'); }
+};
+
+window.deleteComment = async (filename, commentId) => {
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+    try {
+        await fetch(`/api/comments/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}&commentId=${commentId}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+        showCommentsModal(filename);
+    } catch (e) { }
+};
+
+// ============================================================================
+// FILE VERSIONS
+// ============================================================================
+window.showVersionsModal = async (filename) => {
+    const modal = document.getElementById('versionsModal');
+    if (!modal) return;
+
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+    document.getElementById('versionsFileName').textContent = filename;
+
+    try {
+        const res = await fetch(`/api/versions/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}`, {
+            headers: getAuthHeaders()
+        });
+        if (res.ok) {
+            const versions = await res.json();
+            const list = document.getElementById('versionsList');
+            if (versions.length === 0) {
+                list.innerHTML = '<p class="text-muted">Versiyon gecmisi yok</p>';
+            } else {
+                list.innerHTML = versions.map(v => `
+                    <div class="version-item">
+                        <div class="version-info">
+                            <span class="version-date">${formatDate(v.timestamp)}</span>
+                            <span class="version-size">${formatSize(v.size)}</span>
+                        </div>
+                        <button class="btn-sm btn-primary" onclick="restoreVersion('${filename}', '${v.id}')">Geri Yukle</button>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (e) { }
+
+    modal.classList.add('active');
+};
+
+window.closeVersionsModal = () => {
+    document.getElementById('versionsModal')?.classList.remove('active');
+};
+
+window.restoreVersion = async (filename, versionId) => {
+    if (!confirm('Bu versiyon geri yuklenecek. Mevcut dosya versiyonlanacak. Emin misiniz?')) return;
+
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+
+    try {
+        const res = await fetch(`/api/versions/${encodeURIComponent(filename)}/restore/${versionId}?parentPath=${encodeURIComponent(parentPath)}`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        if (res.ok) {
+            showToast('Versiyon geri yuklendi', 'success');
+            showVersionsModal(filename);
+        }
+    } catch (e) { showToast('Geri yukleme hatasi', 'error'); }
+};
+
+// ============================================================================
+// FILE CHECKSUM
+// ============================================================================
+window.showChecksum = async (filename) => {
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+
+    try {
+        const res = await fetch(`/api/checksum/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}`, {
+            headers: getAuthHeaders()
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const propChecksum = document.getElementById('propChecksum');
+            if (propChecksum) {
+                propChecksum.textContent = data.checksum;
+                propChecksum.title = `${data.algorithm.toUpperCase()}: ${data.checksum}`;
+            }
+        }
+    } catch (e) { }
+};
+
+// ============================================================================
+// SEARCH HISTORY
+// ============================================================================
+let searchHistoryData = [];
+
+async function loadSearchHistory() {
+    try {
+        const res = await fetch('/api/search/history', { headers: getAuthHeaders() });
+        if (res.ok) {
+            searchHistoryData = await res.json();
+            renderSearchHistory();
+        }
+    } catch (e) { }
+}
+
+function renderSearchHistory() {
+    const container = document.getElementById('searchHistoryList');
+    if (!container) return;
+
+    if (searchHistoryData.length === 0) {
+        container.innerHTML = '<p class="text-muted">Arama gecmisi bos</p>';
+        return;
+    }
+
+    container.innerHTML = searchHistoryData.slice(0, 10).map(s => `
+        <div class="search-history-item" onclick="replaySearch('${escapeHtml(s.query)}')">
+            <span class="search-history-query">${escapeHtml(s.query)}</span>
+            <span class="search-history-time">${formatDate(s.timestamp)}</span>
+            <button class="btn-icon-sm" onclick="event.stopPropagation(); deleteSearchHistory('${s.id}')">&times;</button>
+        </div>
+    `).join('');
+}
+
+window.replaySearch = (query) => {
+    if (searchInput) {
+        searchInput.value = query;
+        applyFilterAndRender();
+    }
+    closeSearchHistoryPanel();
+};
+
+window.deleteSearchHistory = async (id) => {
+    await fetch(`/api/search/history?id=${id}`, { method: 'DELETE', headers: getAuthHeaders() });
+    loadSearchHistory();
+};
+
+window.clearSearchHistory = async () => {
+    await fetch('/api/search/history', { method: 'DELETE', headers: getAuthHeaders() });
+    searchHistoryData = [];
+    renderSearchHistory();
+};
+
+window.showSearchHistoryPanel = () => {
+    loadSearchHistory();
+    document.getElementById('searchHistoryPanel')?.classList.add('active');
+};
+
+window.closeSearchHistoryPanel = () => {
+    document.getElementById('searchHistoryPanel')?.classList.remove('active');
+};
+
+// Save search when advanced search is performed
+const _originalAdvancedSearch = window.performAdvancedSearch;
+window.performAdvancedSearch = async () => {
+    const q = document.getElementById('advSearchQuery')?.value || '';
+    if (q) {
+        fetch('/api/search/history', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ query: q })
+        }).catch(() => {});
+    }
+    await _originalAdvancedSearch();
+};
+
+// ============================================================================
+// VIDEO THUMBNAIL SUPPORT
+// ============================================================================
+function getVideoThumbnailUrl(filename) {
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+    return `/api/thumbnail/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}`;
+}
+
+// ============================================================================
+// ENHANCED CONTEXT MENU - Add new items
+// ============================================================================
+document.getElementById('ctxComments')?.addEventListener('click', () => {
+    if (selectedFilename) showCommentsModal(selectedFilename);
+});
+
+document.getElementById('ctxVersions')?.addEventListener('click', () => {
+    if (selectedFilename) showVersionsModal(selectedFilename);
+});
+
+// ============================================================================
+// INIT NOTIFICATIONS ON LOAD
+// ============================================================================
+document.addEventListener('DOMContentLoaded', () => {
+    if ('Notification' in window && Notification.permission === 'default') {
+        // Will ask on first interaction
+    }
+    // Load initial notification count
+    fetch('/api/notifications?unreadOnly=true', { headers: getAuthHeaders() })
+        .then(res => res.json())
+        .then(data => {
+            notificationCount = data.length || 0;
+            updateNotificationBadge();
+        })
+        .catch(() => {});
+});

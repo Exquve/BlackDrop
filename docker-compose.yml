@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  blackdrop:
+    build: .
+    container_name: blackdrop
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - blackdrop-uploads:/app/uploads
+      - blackdrop-trash:/app/.trash
+      - blackdrop-data:/app/.data
+      - blackdrop-certs:/app/certs
+    environment:
+      - NODE_ENV=production
+      - JWT_SECRET=${JWT_SECRET:-}
+      - BLACKDROP_PORT=3000
+      - BLACKDROP_QUOTA=10737418240
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-q", "--spider", "https://localhost:3000/api/auth/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  blackdrop-uploads:
+    driver: local
+  blackdrop-trash:
+    driver: local
+  blackdrop-data:
+    driver: local
+  blackdrop-certs:
+    driver: local

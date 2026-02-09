@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log*
+uploads
+.trash
+.data
+certs
+.git
+.gitignore
+.DS_Store
+.vscode
+.idea
+*.md
+.env
+.env.local
