@@ -12,6 +12,7 @@ let isListView = false;
 let currentPath = '/';
 let authToken = localStorage.getItem('blackdrop-token');
 let currentUser = null;
+let currentUserRole = null;
 let allTags = {};
 
 // ============================================================================
@@ -93,10 +94,30 @@ async function checkAuthStatus() {
         if (data.authEnabled && !authToken) {
             showLoginModal();
         } else {
+            await loadCurrentUser();
             fetchContents();
         }
     } catch (e) {
         fetchContents();
+    }
+}
+
+async function loadCurrentUser() {
+    try {
+        const res = await fetch('/api/auth/me', { headers: getAuthHeaders() });
+        if (res.ok) {
+            const data = await res.json();
+            currentUser = data.username;
+            currentUserRole = data.role;
+            updateAdminPanelVisibility();
+        }
+    } catch (e) { }
+}
+
+function updateAdminPanelVisibility() {
+    const adminLink = document.querySelector('.nav-item[onclick*="admin-panel"]');
+    if (adminLink) {
+        adminLink.style.display = currentUserRole === 'superadmin' ? '' : 'none';
     }
 }
 
@@ -121,8 +142,10 @@ window.login = async () => {
             const data = await res.json();
             authToken = data.token;
             currentUser = data.username;
+            currentUserRole = data.role;
             localStorage.setItem('blackdrop-token', authToken);
             document.getElementById('loginModal').classList.remove('active');
+            updateAdminPanelVisibility();
             fetchContents();
             showToast(`Hoş geldin, ${data.username}!`, 'success');
         } else {
@@ -139,6 +162,7 @@ window.login = async () => {
 window.logout = () => {
     authToken = null;
     currentUser = null;
+    currentUserRole = null;
     localStorage.removeItem('blackdrop-token');
     location.reload();
 };
@@ -828,15 +852,19 @@ function showContextMenu(e, filename) {
 
     if (ctxPreview) ctxPreview.style.display = isFolder ? 'none' : 'flex';
 
-    const menuWidth = 200;
-    const menuHeight = 280;
-    let x = e.pageX;
-    let y = e.pageY;
+    contextMenu.style.display = 'block';
+    const menuRect = contextMenu.getBoundingClientRect();
+    const menuWidth = menuRect.width || 200;
+    const menuHeight = menuRect.height || 350;
+
+    let x = e.clientX;
+    let y = e.clientY;
 
     if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 10;
     if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 10;
+    if (x < 0) x = 10;
+    if (y < 0) y = 10;
 
-    contextMenu.style.display = 'block';
     contextMenu.style.left = `${x}px`;
     contextMenu.style.top = `${y}px`;
 }
@@ -1760,15 +1788,19 @@ function setupGridContextMenu() {
         e.preventDefault();
         contextMenu.style.display = 'none';
 
-        const menuWidth = 150;
-        const menuHeight = 50;
-        let x = e.pageX;
-        let y = e.pageY;
+        gridContextMenu.style.display = 'block';
+        const menuRect = gridContextMenu.getBoundingClientRect();
+        const menuWidth = menuRect.width || 180;
+        const menuHeight = menuRect.height || 250;
+
+        let x = e.clientX;
+        let y = e.clientY;
 
         if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 10;
         if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 10;
+        if (x < 0) x = 10;
+        if (y < 0) y = 10;
 
-        gridContextMenu.style.display = 'block';
         gridContextMenu.style.left = `${x}px`;
         gridContextMenu.style.top = `${y}px`;
     });
@@ -2450,6 +2482,9 @@ async function loadLanguage(lang) {
             currentLang = lang;
             localStorage.setItem('blackdrop-lang', lang);
             applyTranslations();
+            // Sync the language selector
+            const langSelect = document.getElementById('languageSelect');
+            if (langSelect) langSelect.value = lang;
         }
     } catch (e) {
         console.error('Language load error:', e);
@@ -2466,6 +2501,10 @@ function applyTranslations() {
         if (i18nStrings[key]) {
             if (el.tagName === 'INPUT' && el.hasAttribute('placeholder')) {
                 el.placeholder = i18nStrings[key];
+            } else if (el.tagName === 'OPTION') {
+                el.textContent = i18nStrings[key];
+            } else if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'SPAN' || el.tagName === 'LABEL' || el.tagName === 'H2' || el.tagName === 'H3' || el.tagName === 'P' || el.tagName === 'DIV') {
+                el.textContent = i18nStrings[key];
             } else {
                 el.textContent = i18nStrings[key];
             }
@@ -2866,9 +2905,41 @@ window.showChecksum = async (filename) => {
             if (propChecksum) {
                 propChecksum.textContent = data.checksum;
                 propChecksum.title = `${data.algorithm.toUpperCase()}: ${data.checksum}`;
+                // Show integrity status if stored checksum exists
+                if (data.integrityOk === true) {
+                    propChecksum.innerHTML = data.checksum + ' <span style="color:#22c55e; font-size:0.8rem;">&#10003; Butunluk dogrulandi</span>';
+                } else if (data.integrityOk === false) {
+                    propChecksum.innerHTML = data.checksum + ' <span style="color:#ef4444; font-size:0.8rem;">&#10007; BUTUNLUK HATASI!</span>';
+                }
             }
+            // Show verification row
+            const verifyRow = document.getElementById('checksumVerifyRow');
+            if (verifyRow) verifyRow.style.display = 'flex';
+            // Reset verify state
+            const verifyResult = document.getElementById('checksumVerifyResult');
+            if (verifyResult) verifyResult.style.display = 'none';
+            const verifyInput = document.getElementById('checksumVerifyInput');
+            if (verifyInput) verifyInput.value = '';
         }
     } catch (e) { }
+};
+
+window.verifyChecksum = () => {
+    const currentChecksum = document.getElementById('propChecksum')?.textContent?.trim();
+    const inputChecksum = document.getElementById('checksumVerifyInput')?.value?.trim().toLowerCase();
+    const resultEl = document.getElementById('checksumVerifyResult');
+    if (!resultEl || !currentChecksum || !inputChecksum) return;
+
+    resultEl.style.display = 'block';
+    if (currentChecksum.toLowerCase() === inputChecksum) {
+        resultEl.style.background = 'rgba(34, 197, 94, 0.15)';
+        resultEl.style.color = '#22c55e';
+        resultEl.textContent = 'Checksum eslesiyor! Dosya butunlugu dogrulandi.';
+    } else {
+        resultEl.style.background = 'rgba(239, 68, 68, 0.15)';
+        resultEl.style.color = '#ef4444';
+        resultEl.textContent = 'Checksum ESLESMIYOR! Dosya degistirilmis veya bozulmus olabilir.';
+    }
 };
 
 // ============================================================================
@@ -2969,15 +3040,28 @@ document.getElementById('ctxVersions')?.addEventListener('click', () => {
 // INIT NOTIFICATIONS ON LOAD
 // ============================================================================
 document.addEventListener('DOMContentLoaded', () => {
+    // Request browser notification permission
     if ('Notification' in window && Notification.permission === 'default') {
-        // Will ask on first interaction
+        // Request on first user interaction
+        document.addEventListener('click', function reqPerm() {
+            Notification.requestPermission();
+            document.removeEventListener('click', reqPerm);
+        }, { once: true });
     }
-    // Load initial notification count
-    fetch('/api/notifications?unreadOnly=true', { headers: getAuthHeaders() })
-        .then(res => res.json())
-        .then(data => {
-            notificationCount = data.length || 0;
-            updateNotificationBadge();
-        })
-        .catch(() => {});
+
+    // Load initial notification count after a short delay (ensure auth is ready)
+    setTimeout(() => {
+        fetch('/api/notifications?unreadOnly=true', { headers: getAuthHeaders() })
+            .then(res => {
+                if (!res.ok) throw new Error('Not ok');
+                return res.json();
+            })
+            .then(data => {
+                if (Array.isArray(data)) {
+                    notificationCount = data.length;
+                    updateNotificationBadge();
+                }
+            })
+            .catch(() => {});
+    }, 1500);
 });

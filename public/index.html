@@ -45,7 +45,7 @@
         <!-- Storage Indicator -->
         <div class="storage-indicator">
             <div class="storage-header">
-                <span class="storage-title">Storage</span>
+                <span class="storage-title" data-i18n="storage">Storage</span>
                 <span class="storage-value" id="storageValue">-- / --</span>
             </div>
             <div class="storage-bar">
@@ -59,35 +59,35 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                 </svg>
-                All Files
+                <span data-i18n="all_files">All Files</span>
             </li>
             <li class="nav-item" data-filter="favorites" onclick="filterFiles('favorites')">
                 <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
                 </svg>
-                Favorites
+                <span data-i18n="favorites">Favorites</span>
             </li>
             <li class="nav-item" data-filter="recent" onclick="filterFiles('recent')">
                 <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                Recent
+                <span data-i18n="recent">Recent</span>
             </li>
             <li class="nav-item" data-filter="media" onclick="filterFiles('media')">
                 <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                Media
+                <span data-i18n="media">Media</span>
             </li>
             <li class="nav-item" data-filter="document" onclick="filterFiles('document')">
                 <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                Documents
+                <span data-i18n="documents">Documents</span>
             </li>
             <li class="nav-divider"></li>
             <li class="nav-item" onclick="showTrashModal()">
@@ -95,7 +95,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
-                Trash
+                <span data-i18n="trash">Trash</span>
             </li>
             <li class="nav-item" onclick="window.location.href='/admin-panel'">
                 <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -104,14 +104,14 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-                Admin Panel
+                <span data-i18n="admin_panel">Admin Panel</span>
             </li>
         </ul>
 
         <!-- Language Selector -->
         <div class="language-selector" style="padding: 0.5rem 1.25rem;">
-            <select onchange="switchLanguage(this.value)" style="width: 100%; padding: 0.4rem; border-radius: 6px; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.85rem; cursor: pointer;">
-                <option value="en" selected>English</option>
+            <select id="languageSelect" onchange="switchLanguage(this.value)" style="width: 100%; padding: 0.4rem; border-radius: 6px; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.85rem; cursor: pointer;">
+                <option value="en">English</option>
                 <option value="tr">Turkce</option>
             </select>
         </div>
@@ -122,7 +122,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
             </svg>
-            <span class="theme-toggle-label">Dark Mode</span>
+            <span class="theme-toggle-label" data-i18n="dark_mode">Dark Mode</span>
             <div class="theme-switch active" id="themeSwitch" onclick="toggleTheme()"></div>
         </div>
     </aside>
@@ -139,7 +139,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
             </button>
-            <input type="text" class="search-bar" placeholder="Search files..." id="searchInput">
+            <input type="text" class="search-bar" placeholder="Search files..." id="searchInput" data-i18n="search_files">
             <button class="icon-btn" id="advancedSearchBtn" title="Advanced Search">
                 <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
@@ -159,7 +159,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
                         </svg>
-                        <span id="sortLabel">Date</span>
+                        <span id="sortLabel" data-i18n="sort_date">Date</span>
                     </button>
                     <div class="sort-menu" id="sortMenu">
                         <div class="sort-option active" data-sort="date">
@@ -167,28 +167,28 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
-                            Date
+                            <span data-i18n="sort_date">Date</span>
                         </div>
                         <div class="sort-option" data-sort="name">
                             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4" />
                             </svg>
-                            Name
+                            <span data-i18n="sort_name">Name</span>
                         </div>
                         <div class="sort-option" data-sort="size">
                             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
                             </svg>
-                            Size
+                            <span data-i18n="sort_size">Size</span>
                         </div>
                         <div class="sort-option" data-sort="type">
                             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                             </svg>
-                            Type
+                            <span data-i18n="sort_type">Type</span>
                         </div>
                     </div>
                 </div>
@@ -212,7 +212,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                     </svg>
-                    Upload
+                    <span data-i18n="upload">Upload</span>
                 </button>
             </div>
             <input type="file" id="fileInput" multiple style="display: none;">
@@ -264,42 +264,42 @@
                     d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z">
                 </path>
             </svg>
-            Preview
+            <span data-i18n="preview">Preview</span>
         </div>
         <div class="context-item" id="ctxDownload">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
             </svg>
-            Download
+            <span data-i18n="download">Download</span>
         </div>
         <div class="context-item" id="ctxShare">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path>
             </svg>
-            Share
+            <span data-i18n="share">Share</span>
         </div>
         <div class="context-item" id="ctxAddTag">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
             </svg>
-            Add Tag
+            <span data-i18n="add_tag">Add Tag</span>
         </div>
         <div class="context-item" id="ctxComments">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"></path>
             </svg>
-            Yorumlar
+            <span data-i18n="comments">Comments</span>
         </div>
         <div class="context-item" id="ctxVersions">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
             </svg>
-            Versiyonlar
+            <span data-i18n="versions">Versions</span>
         </div>
         <div class="context-item" id="ctxRename">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -307,14 +307,14 @@
                     d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z">
                 </path>
             </svg>
-            Rename
+            <span data-i18n="rename">Rename</span>
         </div>
         <div class="context-item" id="ctxProperties">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
             </svg>
-            Properties
+            <span data-i18n="properties">Properties</span>
         </div>
         <div class="context-divider"></div>
         <div class="context-item danger" id="ctxDelete">
@@ -323,7 +323,7 @@
                     d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
                 </path>
             </svg>
-            Delete
+            <span data-i18n="delete">Delete</span>
         </div>
     </div>
 
@@ -335,7 +335,7 @@
                     d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z">
                 </path>
             </svg>
-            Yeni Klasör
+            <span data-i18n="new_folder">New Folder</span>
         </div>
         <div class="context-divider"></div>
         <div class="context-item" id="ctxCreateTxt">
@@ -344,7 +344,7 @@
                     d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
                 </path>
             </svg>
-            Yeni .txt Dosyası
+            <span data-i18n="new_file">New File</span> (.txt)
         </div>
         <div class="context-item" id="ctxCreateMd">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -352,7 +352,7 @@
                     d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z">
                 </path>
             </svg>
-            Yeni .md Dosyası
+            <span data-i18n="new_file">New File</span> (.md)
         </div>
         <div class="context-item" id="ctxCreateJson">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -360,7 +360,7 @@
                     d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4">
                 </path>
             </svg>
-            Yeni .json Dosyası
+            <span data-i18n="new_file">New File</span> (.json)
         </div>
         <div class="context-item" id="ctxCreateHtml">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -368,7 +368,7 @@
                     d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4">
                 </path>
             </svg>
-            Yeni .html Dosyası
+            <span data-i18n="new_file">New File</span> (.html)
         </div>
     </div>
 
@@ -376,7 +376,7 @@
     <div id="createFolderModal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">
-                <h3>Yeni Klasör</h3>
+                <h3 data-i18n="new_folder">New Folder</h3>
                 <button class="close-btn" onclick="closeCreateFolderModal()">
                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
@@ -386,11 +386,11 @@
             </div>
             <div class="modal-body">
                 <input type="text" id="folderNameInput" class="search-bar" style="width: 100%; padding-left: 1rem;"
-                    placeholder="Klasör adı">
+                    placeholder="Folder name" data-i18n="folder_name">
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeCreateFolderModal()">İptal</button>
-                <button class="btn-primary" onclick="confirmCreateFolder()">Oluştur</button>
+                <button class="btn-secondary" onclick="closeCreateFolderModal()" data-i18n="cancel">Cancel</button>
+                <button class="btn-primary" onclick="confirmCreateFolder()" data-i18n="create">Create</button>
             </div>
         </div>
     </div>
@@ -399,7 +399,7 @@
     <div id="createFileModal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">
-                <h3 id="createFileTitle">Yeni Dosya</h3>
+                <h3 id="createFileTitle" data-i18n="new_file">New File</h3>
                 <button class="close-btn" onclick="closeCreateFileModal()">
                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
@@ -409,11 +409,11 @@
             </div>
             <div class="modal-body">
                 <input type="text" id="fileNameInput" class="search-bar" style="width: 100%; padding-left: 1rem;"
-                    placeholder="Dosya adı">
+                    placeholder="File name" data-i18n="file_name">
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeCreateFileModal()">İptal</button>
-                <button class="btn-primary" onclick="confirmCreateFile()">Oluştur</button>
+                <button class="btn-secondary" onclick="closeCreateFileModal()" data-i18n="cancel">Cancel</button>
+                <button class="btn-primary" onclick="confirmCreateFile()" data-i18n="create">Create</button>
             </div>
         </div>
     </div>
@@ -422,7 +422,7 @@
     <div id="propertiesModal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">
-                <h3>File Properties</h3>
+                <h3 data-i18n="file_properties">File Properties</h3>
                 <button class="close-btn" onclick="closePropertiesModal()">
                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
@@ -432,32 +432,40 @@
             </div>
             <div class="modal-body">
                 <div class="prop-row">
-                    <span class="label">Name</span>
+                    <span class="label" data-i18n="name">Name</span>
                     <span class="value" id="propName">filename.txt</span>
                 </div>
                 <div class="prop-row">
-                    <span class="label">Type</span>
+                    <span class="label" data-i18n="type">Type</span>
                     <span class="value" id="propType">Document</span>
                 </div>
                 <div class="prop-row">
-                    <span class="label">Size</span>
+                    <span class="label" data-i18n="size">Size</span>
                     <span class="value" id="propSize">1.2 MB</span>
                 </div>
                 <div class="prop-row">
-                    <span class="label">Modified</span>
+                    <span class="label" data-i18n="modified">Modified</span>
                     <span class="value" id="propDate">2024-03-20 14:30</span>
                 </div>
                 <div class="prop-row">
-                    <span class="label">Downloads</span>
+                    <span class="label" data-i18n="downloads">Downloads</span>
                     <span class="value" id="propDownloads">0</span>
                 </div>
                 <div class="prop-row">
-                    <span class="label">SHA-256</span>
+                    <span class="label" data-i18n="checksum">SHA-256</span>
                     <span class="value checksum-value" id="propChecksum">-</span>
                 </div>
+                <div class="prop-row" id="checksumVerifyRow" style="display:none;">
+                    <span class="label">Dogrula</span>
+                    <div style="display:flex; gap:0.5rem; flex:1; min-width:0;">
+                        <input type="text" id="checksumVerifyInput" class="form-input" placeholder="Karsilastirmak icin checksum yapistin..." style="flex:1; font-family:monospace; font-size:0.75rem;">
+                        <button class="btn-secondary" onclick="verifyChecksum()" style="white-space:nowrap; padding:0.25rem 0.5rem; font-size:0.8rem;">Dogrula</button>
+                    </div>
+                </div>
+                <div id="checksumVerifyResult" style="display:none; padding:0.5rem; border-radius:6px; font-size:0.85rem; margin-top:0.25rem;"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closePropertiesModal()">Close</button>
+                <button class="btn-secondary" onclick="closePropertiesModal()" data-i18n="close">Close</button>
             </div>
         </div>
     </div>
@@ -466,7 +474,7 @@
     <div id="previewModal" class="modal-overlay">
         <div class="modal preview-modal-content">
             <div class="modal-header">
-                <h3 id="previewTitle">Preview</h3>
+                <h3 id="previewTitle" data-i18n="preview">Preview</h3>
                 <button class="close-btn" onclick="closePreviewModal()">
                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
@@ -478,14 +486,14 @@
                 <!-- Preview content injected here -->
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closePreviewModal()">Close</button>
+                <button class="btn-secondary" onclick="closePreviewModal()" data-i18n="close">Close</button>
                 <button class="btn-primary" id="previewDownloadBtn">
                     <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"
                         style="margin-right: 0.5rem;">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
                     </svg>
-                    Download
+                    <span data-i18n="download">Download</span>
                 </button>
             </div>
         </div>
@@ -495,7 +503,7 @@
     <div id="renameModal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">
-                <h3>Rename File</h3>
+                <h3 data-i18n="rename">Rename</h3>
                 <button class="close-btn" onclick="closeRenameModal()">
                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
@@ -508,8 +516,8 @@
                     placeholder="Enter new name">
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeRenameModal()">Cancel</button>
-                <button class="btn-primary" onclick="confirmRename()">Rename</button>
+                <button class="btn-secondary" onclick="closeRenameModal()" data-i18n="cancel">Cancel</button>
+                <button class="btn-primary" onclick="confirmRename()" data-i18n="rename">Rename</button>
             </div>
         </div>
     </div>
@@ -518,7 +526,7 @@
     <div id="deleteModal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">
-                <h3>Delete File</h3>
+                <h3 data-i18n="delete">Delete</h3>
                 <button class="close-btn" onclick="closeDeleteModal()">
                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
@@ -538,8 +546,8 @@
                 <div class="confirm-message" id="deleteMessage">This file will be permanently deleted.</div>
             </div>
             <div class="modal-footer" style="justify-content: center;">
-                <button class="btn-secondary" onclick="closeDeleteModal()">Cancel</button>
-                <button class="btn-danger" onclick="confirmDelete()">Delete</button>
+                <button class="btn-secondary" onclick="closeDeleteModal()" data-i18n="cancel">Cancel</button>
+                <button class="btn-danger" onclick="confirmDelete()" data-i18n="delete">Delete</button>
             </div>
         </div>
     </div>
@@ -593,21 +601,21 @@
     <div id="loginModal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">
-                <h3>🔐 Giriş Yap</h3>
+                <h3 data-i18n="login">Login</h3>
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <label for="loginUsername">Kullanıcı Adı</label>
+                    <label for="loginUsername" data-i18n="username">Username</label>
                     <input type="text" id="loginUsername" class="form-input" placeholder="admin" value="admin" autofocus>
                 </div>
                 <div class="form-group">
-                    <label for="loginPassword">Şifre</label>
-                    <input type="password" id="loginPassword" class="form-input" placeholder="Şifrenizi girin">
+                    <label for="loginPassword" data-i18n="password">Password</label>
+                    <input type="password" id="loginPassword" class="form-input" placeholder="">
                 </div>
                 <div id="loginError" class="error-text" style="display: none;"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn-primary" onclick="login()">Giriş Yap</button>
+                <button class="btn-primary" onclick="login()" data-i18n="login_btn">Login</button>
             </div>
         </div>
     </div>
@@ -616,7 +624,7 @@
     <div id="shareModal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">
-                <h3>Dosya Paylaş</h3>
+                <h3 data-i18n="share_file">Share File</h3>
                 <button class="close-btn" onclick="closeShareModal()">
                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -626,29 +634,29 @@
             <div class="modal-body">
                 <div class="share-file-name" id="shareFileName"></div>
                 <div class="form-group">
-                    <label>Şifre (Opsiyonel)</label>
-                    <input type="password" id="sharePassword" class="form-input" placeholder="Koruma şifresi">
+                    <label data-i18n="share_password">Password (Optional)</label>
+                    <input type="password" id="sharePassword" class="form-input" placeholder="">
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Geçerlilik (gün)</label>
+                        <label data-i18n="share_expiry">Expiry (days)</label>
                         <input type="number" id="shareExpiry" class="form-input" value="7" min="1" max="365">
                     </div>
                     <div class="form-group">
-                        <label>Maks İndirme</label>
-                        <input type="number" id="shareMaxDownloads" class="form-input" placeholder="Sınırsız">
+                        <label data-i18n="share_max_downloads">Max Downloads</label>
+                        <input type="number" id="shareMaxDownloads" class="form-input" placeholder="">
                     </div>
                 </div>
                 <div class="form-group" id="uploadOnlyOption" style="display: none;">
                     <label class="checkbox-label">
                         <input type="checkbox" id="shareUploadOnly">
-                        <span>Sadece yükleme izni ver</span>
+                        <span data-i18n="share_upload_only">Upload only permission</span>
                     </label>
                 </div>
                 <div id="shareResult" style="display: none;">
                     <div class="share-link-container">
                         <input type="text" id="shareUrl" class="form-input" readonly>
-                        <button class="btn-primary" onclick="copyShareLink()">Kopyala</button>
+                        <button class="btn-primary" onclick="copyShareLink()" data-i18n="share_copy">Copy</button>
                     </div>
                     <div class="qr-container">
                         <img id="shareQR" alt="QR Code">
@@ -656,8 +664,8 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeShareModal()">Kapat</button>
-                <button class="btn-primary" onclick="createShareLink()">Link Oluştur</button>
+                <button class="btn-secondary" onclick="closeShareModal()" data-i18n="close">Close</button>
+                <button class="btn-primary" onclick="createShareLink()" data-i18n="share_create_link">Create Link</button>
             </div>
         </div>
     </div>
@@ -666,7 +674,7 @@
     <div id="tagModal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">
-                <h3>Etiket Ekle</h3>
+                <h3 data-i18n="tag_add">Add Tag</h3>
                 <button class="close-btn" onclick="closeTagModal()">
                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -677,13 +685,13 @@
                 <div class="share-file-name" id="tagFileName"></div>
                 <div class="existing-tags" id="existingTags"></div>
                 <div class="form-group">
-                    <label>Yeni Etiket</label>
-                    <input type="text" id="tagInput" class="form-input" placeholder="Etiket adı">
+                    <label data-i18n="tag_label">New Tag</label>
+                    <input type="text" id="tagInput" class="form-input" placeholder="">
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeTagModal()">Kapat</button>
-                <button class="btn-primary" onclick="addTagToFile()">Ekle</button>
+                <button class="btn-secondary" onclick="closeTagModal()" data-i18n="close">Close</button>
+                <button class="btn-primary" onclick="addTagToFile()" data-i18n="tag_add">Add Tag</button>
             </div>
         </div>
     </div>
@@ -692,7 +700,7 @@
     <div id="trashModal" class="modal-overlay">
         <div class="modal modal-lg">
             <div class="modal-header">
-                <h3>Çöp Kutusu</h3>
+                <h3 data-i18n="trash_title">Trash</h3>
                 <button class="close-btn" onclick="closeTrashModal()">
                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -703,8 +711,8 @@
                 <div class="trash-list" id="trashList"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn-danger" onclick="emptyTrash()">Çöp Kutusunu Boşalt</button>
-                <button class="btn-secondary" onclick="closeTrashModal()">Kapat</button>
+                <button class="btn-danger" onclick="emptyTrash()" data-i18n="trash_empty">Empty Trash</button>
+                <button class="btn-secondary" onclick="closeTrashModal()" data-i18n="close">Close</button>
             </div>
         </div>
     </div>
@@ -713,7 +721,7 @@
     <div id="adminModal" class="modal-overlay">
         <div class="modal modal-lg">
             <div class="modal-header">
-                <h3>Admin Panel</h3>
+                <h3 data-i18n="admin_panel">Admin Panel</h3>
                 <button class="close-btn" onclick="closeAdminModal()">
                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>

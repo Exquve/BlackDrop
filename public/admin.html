@@ -1256,7 +1256,7 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                     <h3>Yeni Kullanici Ekle</h3>
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.75rem; align-items: end;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.75rem; align-items: end;">
                     <div>
                         <label style="display: block; margin-bottom: 0.25rem; color: var(--text-secondary); font-size: 0.85rem;">Kullanici Adi</label>
                         <input type="text" id="newUsername" class="form-input" placeholder="kullanici_adi">
@@ -1264,6 +1264,13 @@
                     <div>
                         <label style="display: block; margin-bottom: 0.25rem; color: var(--text-secondary); font-size: 0.85rem;">Sifre</label>
                         <input type="password" id="newUserPassword" class="form-input" placeholder="Sifre">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 0.25rem; color: var(--text-secondary); font-size: 0.85rem;">Rol</label>
+                        <select id="newUserRole" class="form-input">
+                            <option value="user">Kullanici</option>
+                            <option value="admin">Admin</option>
+                        </select>
                     </div>
                     <button class="btn btn-primary" onclick="createUser()">Ekle</button>
                 </div>
@@ -1273,6 +1280,70 @@
                 <h3>Kullanicilar</h3>
                 <div id="userList">
                     <p style="color: var(--text-tertiary)">Yukleniyor...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Permissions Modal -->
+        <div id="userPermModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center;">
+            <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; padding:1.5rem; max-width:600px; width:90%; max-height:80vh; overflow-y:auto;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
+                    <h3 style="margin:0;" id="permModalTitle">Kullanici Izinleri</h3>
+                    <button onclick="closePermModal()" style="background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:1.5rem;">&times;</button>
+                </div>
+
+                <!-- Role -->
+                <div style="margin-bottom:1rem;">
+                    <label style="display:block; margin-bottom:0.25rem; color:var(--text-secondary); font-size:0.85rem;">Rol</label>
+                    <select id="permRole" class="form-input">
+                        <option value="user">Kullanici</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+
+                <!-- Permissions -->
+                <div style="margin-bottom:1rem;">
+                    <label style="display:block; margin-bottom:0.5rem; color:var(--text-secondary); font-size:0.85rem; font-weight:600;">Genel Izinler</label>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+                        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                            <input type="checkbox" id="permRead"> Okuma
+                        </label>
+                        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                            <input type="checkbox" id="permWrite"> Yazma
+                        </label>
+                        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                            <input type="checkbox" id="permDelete"> Silme
+                        </label>
+                        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                            <input type="checkbox" id="permShare"> Paylasim
+                        </label>
+                    </div>
+                </div>
+
+                <!-- File Access Mode -->
+                <div style="margin-bottom:1rem;">
+                    <label style="display:block; margin-bottom:0.5rem; color:var(--text-secondary); font-size:0.85rem; font-weight:600;">Dosya Erisim Modu</label>
+                    <select id="permFileAccessMode" class="form-input" onchange="toggleFileAccessPaths()">
+                        <option value="all">Tum Dosyalar (Sinirsiz Erisim)</option>
+                        <option value="restricted">Sinirli Erisim (Sadece Secilen Dosya/Klasorler)</option>
+                    </select>
+                </div>
+
+                <!-- Allowed Paths -->
+                <div id="fileAccessPathsSection" style="display:none; margin-bottom:1rem;">
+                    <label style="display:block; margin-bottom:0.5rem; color:var(--text-secondary); font-size:0.85rem; font-weight:600;">Erisim Izni Verilen Dosya/Klasorler</label>
+                    <div id="allowedPathsList" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; padding:0.5rem; margin-bottom:0.5rem;">
+                        <p style="color:var(--text-tertiary); font-size:0.85rem;">Yukleniyor...</p>
+                    </div>
+                    <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+                        <input type="text" id="manualPathInput" class="form-input" placeholder="Yol girin (ornek: belgeler/rapor.pdf)" style="flex:1;">
+                        <button class="btn btn-secondary btn-sm" onclick="addManualPath()">Ekle</button>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem;">
+                    <button class="btn btn-secondary" onclick="closePermModal()">Iptal</button>
+                    <button class="btn btn-primary" onclick="savePermissions()">Kaydet</button>
                 </div>
             </div>
         </div>
@@ -2003,42 +2074,56 @@
         }
 
         // ========== USERS / RBAC ==========
+        let currentEditUser = null;
+        let allServerPaths = [];
+        let selectedAllowedPaths = [];
+
         async function loadUsers() {
             try {
                 const res = await fetch('/api/admin/users', { headers: getAuthHeaders() });
                 if (!res.ok) return;
                 const usersData = await res.json();
                 const container = document.getElementById('userList');
-                container.innerHTML = usersData.map(u => `
-                    <div class="activity-item" style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--border);">
+                container.innerHTML = usersData.map(u => {
+                    const roleBg = u.role === 'superadmin' ? '#dc2626' : u.role === 'admin' ? 'var(--accent)' : '#374151';
+                    const roleLabel = u.role === 'superadmin' ? 'SuperAdmin' : u.role === 'admin' ? 'Admin' : 'Kullanici';
+                    const perms = u.permissions || {};
+                    const fa = u.fileAccess || { mode: 'all' };
+                    const accessLabel = fa.mode === 'restricted' ? `Sinirli (${(fa.allowedPaths || []).length} yol)` : 'Tum Dosyalar';
+                    return `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--border);">
                         <div>
                             <strong>${u.username}</strong>
-                            <span class="badge" style="margin-left: 0.5rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; background: ${u.role === 'admin' ? 'var(--accent)' : '#374151'}; color: white;">${u.role}</span>
+                            <span style="margin-left: 0.5rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; background: ${roleBg}; color: white;">${roleLabel}</span>
                             <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.25rem;">
-                                ${u.permissions ? `Okuma: ${u.permissions.read ? 'Evet' : 'Hayir'} | Yazma: ${u.permissions.write ? 'Evet' : 'Hayir'} | Silme: ${u.permissions.delete ? 'Evet' : 'Hayir'} | Paylasim: ${u.permissions.share ? 'Evet' : 'Hayir'}` : ''}
+                                Okuma: ${perms.read ? 'Evet' : 'Hayir'} | Yazma: ${perms.write ? 'Evet' : 'Hayir'} | Silme: ${perms.delete ? 'Evet' : 'Hayir'} | Paylasim: ${perms.share ? 'Evet' : 'Hayir'}
+                            </div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.15rem;">
+                                Dosya Erisimi: ${accessLabel}
                             </div>
                         </div>
                         <div style="display: flex; gap: 0.5rem;">
-                            ${u.username !== 'admin' ? `
+                            ${u.role !== 'superadmin' ? `
                                 <button class="btn btn-secondary btn-sm" onclick="editUserPermissions('${u.username}')">Izinler</button>
                                 <button class="btn btn-danger btn-sm" onclick="deleteUser('${u.username}')">Sil</button>
                             ` : '<span style="color: var(--text-tertiary); font-size: 0.8rem;">Super Admin</span>'}
                         </div>
-                    </div>
-                `).join('');
+                    </div>`;
+                }).join('');
             } catch (e) { }
         }
 
         async function createUser() {
             const username = document.getElementById('newUsername').value.trim();
             const password = document.getElementById('newUserPassword').value;
+            const role = document.getElementById('newUserRole').value;
             if (!username || !password) { showToast('Kullanici adi ve sifre gerekli', 'error'); return; }
 
             try {
                 const res = await fetch('/api/auth/register', {
                     method: 'POST',
                     headers: getAuthHeaders(),
-                    body: JSON.stringify({ username, password, role: 'user' })
+                    body: JSON.stringify({ username, password, role })
                 });
                 if (res.ok) {
                     showToast('Kullanici olusturuldu', 'success');
@@ -2062,27 +2147,138 @@
         }
 
         async function editUserPermissions(username) {
+            currentEditUser = username;
+            document.getElementById('permModalTitle').textContent = `${username} - Izinler`;
+
             try {
-                const res = await fetch(`/api/admin/users/${username}/permissions`, { headers: getAuthHeaders() });
-                if (!res.ok) return;
-                const userData = await res.json();
+                // Load user permissions
+                const permRes = await fetch(`/api/admin/users/${username}/permissions`, { headers: getAuthHeaders() });
+                if (!permRes.ok) return;
+                const userData = await permRes.json();
                 const perms = userData.permissions || {};
 
-                const newPerms = {
-                    read: confirm(`${username} - Okuma izni verilsin mi?`),
-                    write: confirm(`${username} - Yazma izni verilsin mi?`),
-                    delete: confirm(`${username} - Silme izni verilsin mi?`),
-                    share: confirm(`${username} - Paylasim izni verilsin mi?`)
-                };
+                document.getElementById('permRole').value = userData.role || 'user';
+                document.getElementById('permRead').checked = perms.read !== false;
+                document.getElementById('permWrite').checked = perms.write !== false;
+                document.getElementById('permDelete').checked = !!perms.delete;
+                document.getElementById('permShare').checked = perms.share !== false;
 
-                await fetch(`/api/admin/users/${username}/permissions`, {
+                // Load file access
+                const faRes = await fetch(`/api/admin/users/${username}/file-access`, { headers: getAuthHeaders() });
+                const fa = faRes.ok ? await faRes.json() : { mode: 'all', allowedPaths: [] };
+                document.getElementById('permFileAccessMode').value = fa.mode || 'all';
+                selectedAllowedPaths = [...(fa.allowedPaths || [])];
+
+                // Load server paths for picker
+                const pathsRes = await fetch('/api/admin/all-paths', { headers: getAuthHeaders() });
+                allServerPaths = pathsRes.ok ? await pathsRes.json() : [];
+
+                toggleFileAccessPaths();
+                renderAllowedPaths();
+
+                const modal = document.getElementById('userPermModal');
+                modal.style.display = 'flex';
+            } catch (e) {
+                showToast('Izinler yuklenemedi', 'error');
+            }
+        }
+
+        function closePermModal() {
+            document.getElementById('userPermModal').style.display = 'none';
+            currentEditUser = null;
+        }
+
+        function toggleFileAccessPaths() {
+            const mode = document.getElementById('permFileAccessMode').value;
+            document.getElementById('fileAccessPathsSection').style.display = mode === 'restricted' ? 'block' : 'none';
+        }
+
+        function renderAllowedPaths() {
+            const container = document.getElementById('allowedPathsList');
+            if (selectedAllowedPaths.length === 0) {
+                container.innerHTML = '<p style="color:var(--text-tertiary); font-size:0.85rem; margin:0;">Henuz yol eklenmedi. Asagidan dosya/klasor secin.</p>';
+            } else {
+                container.innerHTML = selectedAllowedPaths.map((p, i) => `
+                    <div style="display:flex; align-items:center; justify-content:space-between; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border);">
+                        <span style="font-size:0.85rem; font-family:monospace;">${p}</span>
+                        <button onclick="removeAllowedPath(${i})" style="background:none; border:none; color:#ef4444; cursor:pointer; font-size:1rem;">&times;</button>
+                    </div>
+                `).join('');
+            }
+
+            // Show available paths below
+            if (allServerPaths.length > 0) {
+                const availablePaths = allServerPaths.filter(p => !selectedAllowedPaths.includes(p.path));
+                if (availablePaths.length > 0) {
+                    container.innerHTML += '<div style="margin-top:0.5rem; padding-top:0.5rem; border-top:2px solid var(--border);"><strong style="font-size:0.8rem; color:var(--text-secondary);">Mevcut Dosya/Klasorler:</strong></div>';
+                    container.innerHTML += availablePaths.slice(0, 50).map(p => `
+                        <div style="display:flex; align-items:center; justify-content:space-between; padding:0.25rem 0.5rem; cursor:pointer; border-radius:4px;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'" onclick="addAllowedPath('${p.path.replace(/'/g, "\\'")}')">
+                            <span style="font-size:0.85rem; font-family:monospace;">${p.isFolder ? '📁' : '📄'} ${p.path}</span>
+                            <span style="color:var(--accent); font-size:0.8rem;">+ Ekle</span>
+                        </div>
+                    `).join('');
+                }
+            }
+        }
+
+        function addAllowedPath(pathStr) {
+            if (!selectedAllowedPaths.includes(pathStr)) {
+                selectedAllowedPaths.push(pathStr);
+                renderAllowedPaths();
+            }
+        }
+
+        function removeAllowedPath(index) {
+            selectedAllowedPaths.splice(index, 1);
+            renderAllowedPaths();
+        }
+
+        function addManualPath() {
+            const input = document.getElementById('manualPathInput');
+            const pathStr = input.value.trim();
+            if (pathStr && !selectedAllowedPaths.includes(pathStr)) {
+                selectedAllowedPaths.push(pathStr);
+                input.value = '';
+                renderAllowedPaths();
+            }
+        }
+
+        async function savePermissions() {
+            if (!currentEditUser) return;
+
+            const role = document.getElementById('permRole').value;
+            const permissions = {
+                read: document.getElementById('permRead').checked,
+                write: document.getElementById('permWrite').checked,
+                delete: document.getElementById('permDelete').checked,
+                share: document.getElementById('permShare').checked
+            };
+            const fileAccessMode = document.getElementById('permFileAccessMode').value;
+
+            try {
+                // Save role and permissions
+                await fetch(`/api/admin/users/${currentEditUser}/permissions`, {
                     method: 'PUT',
                     headers: getAuthHeaders(),
-                    body: JSON.stringify({ permissions: newPerms })
+                    body: JSON.stringify({ permissions, role })
                 });
+
+                // Save file access
+                await fetch(`/api/admin/users/${currentEditUser}/file-access`, {
+                    method: 'PUT',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        mode: fileAccessMode,
+                        allowedPaths: fileAccessMode === 'restricted' ? selectedAllowedPaths : []
+                    })
+                });
+
                 showToast('Izinler guncellendi', 'success');
+                closePermModal();
                 loadUsers();
-            } catch (e) { showToast('Hata', 'error'); }
+            } catch (e) {
+                showToast('Izinler guncellenemedi', 'error');
+            }
         }
 
         // ========== MODIFY LOAD DASHBOARD ==========
@@ -2101,7 +2297,25 @@
         };
 
         // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Check if user is superadmin
+            try {
+                const meRes = await fetch('/api/auth/me', { headers: getAuthHeaders() });
+                if (meRes.ok) {
+                    const me = await meRes.json();
+                    if (me.role !== 'superadmin') {
+                        document.body.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; height:100vh; color:var(--text-primary); font-size:1.5rem; flex-direction:column; gap:1rem;"><h2>Erisim Engellendi</h2><p style="font-size:1rem; color:var(--text-secondary);">Bu sayfaya sadece SuperAdmin erisebilir.</p><a href="/" style="color:var(--accent);">Ana Sayfaya Don</a></div>';
+                        return;
+                    }
+                } else {
+                    window.location.href = '/';
+                    return;
+                }
+            } catch (e) {
+                window.location.href = '/';
+                return;
+            }
+
             // Load theme
             const savedTheme = localStorage.getItem('admin-theme') || 'dark';
             document.documentElement.setAttribute('data-theme', savedTheme);

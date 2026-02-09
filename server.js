@@ -62,7 +62,9 @@ const DATA_FILES = {
     comments: path.join(CONFIG.DATA_DIR, 'comments.json'),
     fileVersions: path.join(CONFIG.DATA_DIR, 'file-versions.json'),
     searchHistory: path.join(CONFIG.DATA_DIR, 'search-history.json'),
-    notifications: path.join(CONFIG.DATA_DIR, 'notifications.json')
+    notifications: path.join(CONFIG.DATA_DIR, 'notifications.json'),
+    fileAccess: path.join(CONFIG.DATA_DIR, 'file-access.json'),
+    checksums: path.join(CONFIG.DATA_DIR, 'checksums.json')
 };
 
 // Initialize data files
@@ -82,7 +84,13 @@ function saveData(file, data) {
 }
 
 // In-memory data stores
-let users = loadData(DATA_FILES.users, { admin: { password: bcrypt.hashSync('admin', 10), role: 'admin' } });
+let users = loadData(DATA_FILES.users, { admin: { password: bcrypt.hashSync('admin', 10), role: 'superadmin' } });
+
+// Migrate existing admin users: upgrade role 'admin' -> 'superadmin' for the default admin account
+if (users.admin && users.admin.role === 'admin') {
+    users.admin.role = 'superadmin';
+    saveData(DATA_FILES.users, users);
+}
 let shares = loadData(DATA_FILES.shares, {});
 let favorites = loadData(DATA_FILES.favorites, []);
 let recentFiles = loadData(DATA_FILES.recent, []);
@@ -98,6 +106,8 @@ let comments = loadData(DATA_FILES.comments, {});
 let fileVersions = loadData(DATA_FILES.fileVersions, {});
 let searchHistory = loadData(DATA_FILES.searchHistory, []);
 let notifications = loadData(DATA_FILES.notifications, []);
+let fileAccess = loadData(DATA_FILES.fileAccess, {});
+let fileChecksums = loadData(DATA_FILES.checksums, {});
 
 // Versions directory
 const VERSIONS_DIR = path.join(CONFIG.DATA_DIR, 'versions');
@@ -126,6 +136,8 @@ setInterval(() => {
     saveData(DATA_FILES.fileVersions, fileVersions);
     saveData(DATA_FILES.searchHistory, searchHistory);
     saveData(DATA_FILES.notifications, notifications);
+    saveData(DATA_FILES.fileAccess, fileAccess);
+    saveData(DATA_FILES.checksums, fileChecksums);
 }, 60000); // Every minute
 
 // ============================================================================
@@ -154,7 +166,8 @@ app.use(compression());
 
 // CORS
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Rate limiting
 const limiter = rateLimit({
@@ -242,6 +255,16 @@ function safeResolvePath(relativePath, baseDir = CONFIG.UPLOAD_DIR) {
     return resolved;
 }
 
+// Get user's effective base directory
+function getUserBaseDir(req) {
+    if (!req.user || req.user.role === 'superadmin') return CONFIG.UPLOAD_DIR;
+    const user = users[req.user.username];
+    if (!user || !user.homeDir) return CONFIG.UPLOAD_DIR;
+    const homeDir = path.join(CONFIG.UPLOAD_DIR, user.homeDir);
+    if (!fs.existsSync(homeDir)) fs.mkdirSync(homeDir, { recursive: true });
+    return homeDir;
+}
+
 function logActivity(action, details, ip, user = 'anonymous') {
     const entry = {
         id: uuidv4(),
@@ -285,6 +308,40 @@ function addNotification(type, message, details = {}) {
     if (notifications.length > 200) notifications = notifications.slice(0, 200);
     io.emit('notification:new', notification);
     return notification;
+}
+
+// Migrate file metadata when a file is moved or renamed
+function migrateFileMetadata(oldRelPath, newRelPath) {
+    // Tags
+    if (tags[oldRelPath]) {
+        tags[newRelPath] = tags[oldRelPath];
+        delete tags[oldRelPath];
+    }
+    // Download counts
+    if (downloadCounts[oldRelPath]) {
+        downloadCounts[newRelPath] = downloadCounts[oldRelPath];
+        delete downloadCounts[oldRelPath];
+    }
+    // Comments
+    if (comments[oldRelPath]) {
+        comments[newRelPath] = comments[oldRelPath];
+        delete comments[oldRelPath];
+    }
+    // File versions
+    if (fileVersions[oldRelPath]) {
+        fileVersions[newRelPath] = fileVersions[oldRelPath];
+        delete fileVersions[oldRelPath];
+    }
+    // Checksums
+    if (fileChecksums[oldRelPath]) {
+        fileChecksums[newRelPath] = fileChecksums[oldRelPath];
+        delete fileChecksums[oldRelPath];
+    }
+    // Favorites
+    const favIdx = favorites.indexOf(oldRelPath);
+    if (favIdx !== -1) {
+        favorites[favIdx] = newRelPath;
+    }
 }
 
 function computeFileChecksum(filePath, algorithm = 'sha256') {
@@ -368,7 +425,8 @@ setInterval(cleanTrash, 3600000);
 function authenticateToken(req, res, next) {
     // Check if auth is disabled
     if (!settings.authEnabled) {
-        req.user = { username: 'guest', role: 'admin' };
+        req.user = { username: 'guest', role: 'superadmin' };
+        req.baseDir = CONFIG.UPLOAD_DIR;
         return next();
     }
 
@@ -389,13 +447,14 @@ function authenticateToken(req, res, next) {
             return res.status(403).json({ error: 'Invalid or expired token' });
         }
         req.user = user;
+        req.baseDir = getUserBaseDir(req);
         next();
     });
 }
 
 function requireAdmin(req, res, next) {
-    if (req.user?.role !== 'admin') {
-        return res.status(403).json({ error: 'Admin access required' });
+    if (req.user?.role !== 'superadmin') {
+        return res.status(403).json({ error: 'SuperAdmin access required' });
     }
     next();
 }
@@ -428,15 +487,17 @@ app.use(ipFilter);
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
+        const baseDir = req.baseDir || CONFIG.UPLOAD_DIR;
         const parentPath = (req.query.parentPath || '').replace(/^\/+/, '').replace(/\.\./g, '');
-        const targetDir = path.join(CONFIG.UPLOAD_DIR, parentPath);
+        const targetDir = path.join(baseDir, parentPath);
         if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
         req.uploadParentPath = parentPath;
         cb(null, targetDir);
     },
     filename: (req, file, cb) => {
+        const baseDir = req.baseDir || CONFIG.UPLOAD_DIR;
         const parentPath = (req.query.parentPath || '').replace(/^\/+/, '').replace(/\.\./g, '');
-        const targetDir = path.join(CONFIG.UPLOAD_DIR, parentPath);
+        const targetDir = path.join(baseDir, parentPath);
         let filename = file.originalname;
         let filePath = path.join(targetDir, filename);
         let counter = 1;
@@ -512,6 +573,22 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
     res.json({ token, username, role: user.role, permissions: user.permissions, homeDir: user.homeDir });
 });
 
+// Get current user info
+app.get('/api/auth/me', authenticateToken, (req, res) => {
+    const username = req.user?.username;
+    const user = users[username];
+    if (!user) {
+        return res.json({ username: req.user?.username, role: req.user?.role });
+    }
+    res.json({
+        username,
+        role: user.role,
+        permissions: user.permissions,
+        homeDir: user.homeDir,
+        fileAccess: fileAccess[username] || { mode: 'all', allowedPaths: [] }
+    });
+});
+
 // Register (admin only or first user)
 app.post('/api/auth/register', (req, res) => {
     const { username, password, role = 'user', permissions } = req.body;
@@ -561,7 +638,7 @@ app.post('/api/auth/change-password', authenticateToken, (req, res) => {
 // ============================================================================
 
 // Upload
-app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => {
+app.post('/api/upload', authenticateToken, upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     const parentPath = req.uploadParentPath || '';
@@ -572,6 +649,14 @@ app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => 
         type: getFileType(req.file.filename),
         isFolder: false
     };
+
+    // Compute and store checksum for integrity verification
+    try {
+        const relativePath = parentPath ? `${parentPath}/${req.file.filename}` : req.file.filename;
+        const checksum = await computeFileChecksum(req.file.path, 'sha256');
+        fileChecksums[relativePath] = { checksum, algorithm: 'sha256', computedAt: new Date().toISOString() };
+        saveData(DATA_FILES.checksums, fileChecksums);
+    } catch (e) { }
 
     io.emit('file:uploaded', { file: fileData, parentPath: parentPath || '/' });
     logActivity('upload', `Uploaded: ${req.file.filename} (${formatBytes(req.file.size)})`, req.clientIp, req.user?.username);
@@ -634,21 +719,24 @@ app.post('/api/upload/complete', authenticateToken, async (req, res) => {
 
 // List contents
 app.get('/api/contents', authenticateToken, (req, res) => {
-    const folderPath = safeResolvePath(req.query.path || '');
+    const baseDir = req.baseDir || CONFIG.UPLOAD_DIR;
+    const folderPath = safeResolvePath(req.query.path || '', baseDir);
     if (!folderPath || !fs.existsSync(folderPath)) {
         return res.status(404).json({ error: 'Folder not found' });
     }
 
+    const currentRelPath = req.query.path || '';
+
     try {
         const items = fs.readdirSync(folderPath);
-        const contents = items
+        let contents = items
             .filter(item => !item.startsWith('.'))
             .map(item => {
                 const itemPath = path.join(folderPath, item);
                 try {
                     const stats = fs.statSync(itemPath);
                     const isFolder = stats.isDirectory();
-                    const relativePath = itemPath.replace(CONFIG.UPLOAD_DIR, '').replace(/^\//, '');
+                    const relativePath = itemPath.replace(baseDir, '').replace(/^\//, '');
                     return {
                         name: item,
                         isFolder,
@@ -663,6 +751,25 @@ app.get('/api/contents', authenticateToken, (req, res) => {
                 } catch (e) { return null; }
             })
             .filter(item => item !== null);
+
+        // Apply file-level access control for non-superadmin users
+        const username = req.user?.username;
+        const userAccess = username ? fileAccess[username] : null;
+        if (req.user?.role !== 'superadmin' && userAccess && userAccess.mode === 'restricted') {
+            const allowed = userAccess.allowedPaths || [];
+            contents = contents.filter(item => {
+                const itemRelPath = currentRelPath ? `${currentRelPath}/${item.name}` : item.name;
+                return allowed.some(ap => {
+                    // Exact match
+                    if (itemRelPath === ap) return true;
+                    // Item is inside an allowed folder
+                    if (itemRelPath.startsWith(ap + '/')) return true;
+                    // Item is a parent folder of an allowed path (show folder so user can navigate to it)
+                    if (ap.startsWith(itemRelPath + '/')) return true;
+                    return false;
+                });
+            });
+        }
 
         contents.sort((a, b) => {
             if (a.isFolder && !b.isFolder) return -1;
@@ -681,7 +788,7 @@ app.get('/api/download/:filename(*)', (req, res) => {
     const filename = req.params.filename;
     const parentPath = req.query.parentPath || '';
     const inline = req.query.inline === 'true';
-    const filePath = safeResolvePath(path.join(parentPath, filename));
+    const filePath = safeResolvePath(path.join(parentPath, filename), req.baseDir);
 
     if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({ error: 'File not found' });
@@ -691,6 +798,7 @@ app.get('/api/download/:filename(*)', (req, res) => {
     downloadCounts[relativePath] = (downloadCounts[relativePath] || 0) + 1;
     addToRecent(relativePath, 'downloaded');
     logActivity('download', `Downloaded: ${filename}`, req.clientIp);
+    addNotification('download', `Dosya indirildi: ${filename}`, { file: filename });
 
     if (inline) {
         // Serve file inline for preview (PDF, images, etc.)
@@ -704,7 +812,7 @@ app.get('/api/download/:filename(*)', (req, res) => {
 app.delete('/api/files/:filename(*)', authenticateToken, (req, res) => {
     const filename = req.params.filename;
     const parentPath = req.query.parentPath || '';
-    const filePath = safeResolvePath(path.join(parentPath, filename));
+    const filePath = safeResolvePath(path.join(parentPath, filename), req.baseDir);
 
     if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({ error: 'File not found' });
@@ -747,7 +855,7 @@ app.delete('/api/files/:filename(*)', authenticateToken, (req, res) => {
 app.delete('/api/files/:filename(*)/permanent', authenticateToken, (req, res) => {
     const filename = req.params.filename;
     const parentPath = req.query.parentPath || '';
-    const filePath = safeResolvePath(path.join(parentPath, filename));
+    const filePath = safeResolvePath(path.join(parentPath, filename), req.baseDir);
 
     if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({ error: 'File not found' });
@@ -771,8 +879,8 @@ app.put('/api/files/:filename(*)', authenticateToken, (req, res) => {
 
     if (!newName) return res.status(400).json({ error: 'New name is required' });
 
-    const oldPath = safeResolvePath(path.join(parentPath, oldName));
-    const newPath = safeResolvePath(path.join(parentPath, newName));
+    const oldPath = safeResolvePath(path.join(parentPath, oldName), req.baseDir);
+    const newPath = safeResolvePath(path.join(parentPath, newName), req.baseDir);
 
     if (!oldPath || !fs.existsSync(oldPath)) {
         return res.status(404).json({ error: 'File not found' });
@@ -784,6 +892,10 @@ app.put('/api/files/:filename(*)', authenticateToken, (req, res) => {
 
     try {
         fs.renameSync(oldPath, newPath);
+        // Migrate metadata to new path
+        const oldRelPath = parentPath ? `${parentPath}/${oldName}` : oldName;
+        const newRelPath = parentPath ? `${parentPath}/${newName}` : newName;
+        migrateFileMetadata(oldRelPath, newRelPath);
         io.emit('file:renamed', { oldName, newName, parentPath });
         logActivity('rename', `Renamed: ${oldName} → ${newName}`, req.clientIp, req.user?.username);
         res.json({ message: 'File renamed', oldName, newName });
@@ -801,7 +913,7 @@ app.post('/api/folders', authenticateToken, (req, res) => {
         return res.status(400).json({ error: 'Invalid folder name' });
     }
 
-    const parentDir = safeResolvePath(parentPath || '');
+    const parentDir = safeResolvePath(parentPath || '', req.baseDir);
     if (!parentDir) return res.status(400).json({ error: 'Invalid parent path' });
 
     const newFolderPath = path.join(parentDir, name);
@@ -839,7 +951,7 @@ app.post('/api/files/create', authenticateToken, (req, res) => {
         return res.status(400).json({ error: 'Invalid file name' });
     }
 
-    const parentDir = safeResolvePath(parentPath || '');
+    const parentDir = safeResolvePath(parentPath || '', req.baseDir);
     if (!parentDir) return res.status(400).json({ error: 'Invalid parent path' });
 
     const newFilePath = path.join(parentDir, name);
@@ -871,7 +983,7 @@ app.post('/api/files/create', authenticateToken, (req, res) => {
 // Delete folder
 app.delete('/api/folders/*', authenticateToken, (req, res) => {
     const folderRelPath = req.params[0];
-    const folderPath = safeResolvePath(folderRelPath);
+    const folderPath = safeResolvePath(folderRelPath, req.baseDir);
 
     if (!folderPath || folderPath === CONFIG.UPLOAD_DIR) {
         return res.status(400).json({ error: 'Invalid folder path' });
@@ -912,8 +1024,8 @@ app.delete('/api/folders/*', authenticateToken, (req, res) => {
 app.post('/api/move', authenticateToken, (req, res) => {
     const { source, destination, name } = req.body;
 
-    const sourcePath = safeResolvePath(source);
-    const destDir = safeResolvePath(destination || '');
+    const sourcePath = safeResolvePath(source, req.baseDir);
+    const destDir = safeResolvePath(destination || '', req.baseDir);
 
     if (!sourcePath || !destDir) return res.status(400).json({ error: 'Invalid path' });
     if (!fs.existsSync(sourcePath)) return res.status(404).json({ error: 'Source not found' });
@@ -927,6 +1039,9 @@ app.post('/api/move', authenticateToken, (req, res) => {
 
     try {
         fs.renameSync(sourcePath, destPath);
+        // Migrate metadata to new path
+        const newRelPath = destination ? `${destination}/${itemName}` : itemName;
+        migrateFileMetadata(source, newRelPath);
         io.emit('item:moved', { source, destination, name: itemName });
         logActivity('move', `Moved: ${source} → ${destination}/${itemName}`, req.clientIp, req.user?.username);
         res.json({ message: 'Item moved' });
@@ -1153,6 +1268,7 @@ app.post('/api/share', authenticateToken, (req, res) => {
 
     saveData(DATA_FILES.shares, shares);
     logActivity('share', `Created share link for: ${filePath}`, req.clientIp, req.user?.username);
+    addNotification('share', `Paylasim olusturuldu: ${path.basename(filePath)}`, { file: filePath });
 
     const shareUrl = `${req.protocol}://${req.get('host')}/share/${shareId}`;
     res.json({ shareId, shareUrl, expiresAt });
@@ -1395,7 +1511,7 @@ app.post('/api/download-zip', authenticateToken, (req, res) => {
     archive.pipe(res);
 
     paths.forEach(p => {
-        const fullPath = safeResolvePath(p);
+        const fullPath = safeResolvePath(p, req.baseDir);
         if (fullPath && fs.existsSync(fullPath)) {
             const stats = fs.statSync(fullPath);
             if (stats.isDirectory()) {
@@ -1507,7 +1623,7 @@ app.delete('/api/activity', authenticateToken, (req, res) => {
 // ============================================================================
 
 // Dashboard stats
-app.get('/api/admin/stats', authenticateToken, (req, res) => {
+app.get('/api/admin/stats', authenticateToken, requireAdmin, (req, res) => {
     const totalFiles = countFiles(CONFIG.UPLOAD_DIR);
     const totalSize = getDirectorySizeRecursive(CONFIG.UPLOAD_DIR);
     const trashSize = getDirectorySizeRecursive(CONFIG.TRASH_DIR);
@@ -1584,11 +1700,11 @@ function countFiles(dir) {
 }
 
 // IP config
-app.get('/api/admin/ip-config', authenticateToken, (req, res) => {
+app.get('/api/admin/ip-config', authenticateToken, requireAdmin, (req, res) => {
     res.json(ipConfig);
 });
 
-app.put('/api/admin/ip-config', authenticateToken, (req, res) => {
+app.put('/api/admin/ip-config', authenticateToken, requireAdmin, (req, res) => {
     const { mode, whitelist, blacklist } = req.body;
     if (mode) ipConfig.mode = mode;
     if (whitelist) ipConfig.whitelist = whitelist;
@@ -1598,39 +1714,45 @@ app.put('/api/admin/ip-config', authenticateToken, (req, res) => {
 });
 
 // Settings
-app.get('/api/admin/settings', authenticateToken, (req, res) => {
+app.get('/api/admin/settings', authenticateToken, requireAdmin, (req, res) => {
     res.json(settings);
 });
 
-app.put('/api/admin/settings', authenticateToken, (req, res) => {
+app.put('/api/admin/settings', authenticateToken, requireAdmin, (req, res) => {
     Object.assign(settings, req.body);
     saveData(DATA_FILES.settings, settings);
     res.json({ message: 'Settings updated', settings });
 });
 
 // Users management
-app.get('/api/admin/users', authenticateToken, (req, res) => {
+app.get('/api/admin/users', authenticateToken, requireAdmin, (req, res) => {
     const userList = Object.entries(users).map(([username, data]) => ({
         username,
-        role: data.role
+        role: data.role,
+        permissions: data.permissions || { read: true, write: true, delete: false, share: true },
+        homeDir: data.homeDir,
+        fileAccess: fileAccess[username] || { mode: 'all', allowedPaths: [] },
+        createdAt: data.createdAt
     }));
     res.json(userList);
 });
 
-app.delete('/api/admin/users/:username', authenticateToken, (req, res) => {
+app.delete('/api/admin/users/:username', authenticateToken, requireAdmin, (req, res) => {
     const { username } = req.params;
     if (username === 'admin') {
         return res.status(400).json({ error: 'Cannot delete admin user' });
     }
     if (users[username]) {
         delete users[username];
+        delete fileAccess[username];
         saveData(DATA_FILES.users, users);
+        saveData(DATA_FILES.fileAccess, fileAccess);
     }
     res.json({ message: 'User deleted' });
 });
 
 // Large files cleanup helper
-app.get('/api/admin/large-files', authenticateToken, (req, res) => {
+app.get('/api/admin/large-files', authenticateToken, requireAdmin, (req, res) => {
     const { minSize = 100 * 1024 * 1024 } = req.query; // Default 100MB
 
     function findLargeFiles(dir, basePath = '') {
@@ -1664,18 +1786,18 @@ app.get('/api/admin/large-files', authenticateToken, (req, res) => {
 });
 
 // Activity log
-app.get('/api/admin/activity', authenticateToken, (req, res) => {
+app.get('/api/admin/activity', authenticateToken, requireAdmin, (req, res) => {
     res.json(activityLog.slice().reverse());
 });
 
-app.delete('/api/admin/activity', authenticateToken, (req, res) => {
+app.delete('/api/admin/activity', authenticateToken, requireAdmin, (req, res) => {
     activityLog = [];
     saveData(DATA_FILES.activity, activityLog);
     res.json({ message: 'Activity log cleared' });
 });
 
 // Change admin password
-app.post('/api/admin/change-password', authenticateToken, (req, res) => {
+app.post('/api/admin/change-password', authenticateToken, requireAdmin, (req, res) => {
     const { password } = req.body;
     
     if (!password || password.length < 4) {
@@ -1690,7 +1812,7 @@ app.post('/api/admin/change-password', authenticateToken, (req, res) => {
 });
 
 // Cleanup expired shares
-app.post('/api/admin/cleanup-shares', authenticateToken, (req, res) => {
+app.post('/api/admin/cleanup-shares', authenticateToken, requireAdmin, (req, res) => {
     const now = new Date();
     let cleaned = 0;
     
@@ -1713,7 +1835,7 @@ app.post('/api/admin/cleanup-shares', authenticateToken, (req, res) => {
 });
 
 // Admin shares list
-app.get('/api/admin/shares', authenticateToken, (req, res) => {
+app.get('/api/admin/shares', authenticateToken, requireAdmin, (req, res) => {
     const shareList = Object.entries(shares).map(([id, share]) => ({
         id,
         ...share
@@ -1722,7 +1844,7 @@ app.get('/api/admin/shares', authenticateToken, (req, res) => {
 });
 
 // IP Whitelist management
-app.post('/api/admin/ip/whitelist', authenticateToken, (req, res) => {
+app.post('/api/admin/ip/whitelist', authenticateToken, requireAdmin, (req, res) => {
     const { ip } = req.body;
     if (!ip) return res.status(400).json({ error: 'IP required' });
     
@@ -1735,7 +1857,7 @@ app.post('/api/admin/ip/whitelist', authenticateToken, (req, res) => {
     res.json({ message: 'IP added to whitelist' });
 });
 
-app.delete('/api/admin/ip/whitelist', authenticateToken, (req, res) => {
+app.delete('/api/admin/ip/whitelist', authenticateToken, requireAdmin, (req, res) => {
     const { ip } = req.body;
     if (!ip) return res.status(400).json({ error: 'IP required' });
     
@@ -1748,7 +1870,7 @@ app.delete('/api/admin/ip/whitelist', authenticateToken, (req, res) => {
 });
 
 // IP Blacklist management
-app.post('/api/admin/ip/blacklist', authenticateToken, (req, res) => {
+app.post('/api/admin/ip/blacklist', authenticateToken, requireAdmin, (req, res) => {
     const { ip } = req.body;
     if (!ip) return res.status(400).json({ error: 'IP required' });
     
@@ -1761,7 +1883,7 @@ app.post('/api/admin/ip/blacklist', authenticateToken, (req, res) => {
     res.json({ message: 'IP added to blacklist' });
 });
 
-app.delete('/api/admin/ip/blacklist', authenticateToken, (req, res) => {
+app.delete('/api/admin/ip/blacklist', authenticateToken, requireAdmin, (req, res) => {
     const { ip } = req.body;
     if (!ip) return res.status(400).json({ error: 'IP required' });
     
@@ -1778,7 +1900,7 @@ app.delete('/api/admin/ip/blacklist', authenticateToken, (req, res) => {
 // ============================================================================
 
 // Get all storage locations
-app.get('/api/admin/storage-locations', authenticateToken, (req, res) => {
+app.get('/api/admin/storage-locations', authenticateToken, requireAdmin, (req, res) => {
     // Add disk info for each location
     const locationsWithInfo = storageLocations.map(loc => {
         let diskInfo = { total: 0, free: 0, used: 0 };
@@ -1803,7 +1925,7 @@ app.get('/api/admin/storage-locations', authenticateToken, (req, res) => {
 });
 
 // Add new storage location
-app.post('/api/admin/storage-locations', authenticateToken, (req, res) => {
+app.post('/api/admin/storage-locations', authenticateToken, requireAdmin, (req, res) => {
     const { name, path: locationPath } = req.body;
     
     if (!name || !locationPath) {
@@ -1843,7 +1965,7 @@ app.post('/api/admin/storage-locations', authenticateToken, (req, res) => {
 });
 
 // Update storage location (enable/disable, set default)
-app.put('/api/admin/storage-locations/:id', authenticateToken, (req, res) => {
+app.put('/api/admin/storage-locations/:id', authenticateToken, requireAdmin, (req, res) => {
     const { id } = req.params;
     const { enabled, isDefault, name } = req.body;
     
@@ -1880,7 +2002,7 @@ app.put('/api/admin/storage-locations/:id', authenticateToken, (req, res) => {
 });
 
 // Delete storage location
-app.delete('/api/admin/storage-locations/:id', authenticateToken, (req, res) => {
+app.delete('/api/admin/storage-locations/:id', authenticateToken, requireAdmin, (req, res) => {
     const { id } = req.params;
     
     const location = storageLocations.find(loc => loc.id === id);
@@ -1917,7 +2039,7 @@ app.get('/api/storage-location', (req, res) => {
 app.get('/api/preview/:filename(*)', authenticateToken, (req, res) => {
     const filename = req.params.filename;
     const parentPath = req.query.parentPath || '';
-    const filePath = safeResolvePath(path.join(parentPath, filename));
+    const filePath = safeResolvePath(path.join(parentPath, filename), req.baseDir);
 
     if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({ error: 'File not found' });
@@ -1942,7 +2064,7 @@ app.put('/api/preview/:filename(*)', authenticateToken, (req, res) => {
     const filename = req.params.filename;
     const parentPath = req.query.parentPath || '';
     const { content } = req.body;
-    const filePath = safeResolvePath(path.join(parentPath, filename));
+    const filePath = safeResolvePath(path.join(parentPath, filename), req.baseDir);
 
     if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({ error: 'File not found' });
@@ -1983,7 +2105,7 @@ app.get('/api/checksum/:filename(*)', authenticateToken, async (req, res) => {
     const filename = req.params.filename;
     const parentPath = req.query.parentPath || '';
     const algorithm = req.query.algorithm || 'sha256';
-    const filePath = safeResolvePath(path.join(parentPath, filename));
+    const filePath = safeResolvePath(path.join(parentPath, filename), req.baseDir);
 
     if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({ error: 'File not found' });
@@ -1995,7 +2117,18 @@ app.get('/api/checksum/:filename(*)', authenticateToken, async (req, res) => {
             return res.status(400).json({ error: 'Cannot compute checksum for directories' });
         }
         const checksum = await computeFileChecksum(filePath, algorithm);
-        res.json({ checksum, algorithm, file: filename, size: stats.size });
+        const relativePath = parentPath ? `${parentPath}/${filename}` : filename;
+        const stored = fileChecksums[relativePath];
+        const integrityOk = stored ? (stored.checksum === checksum) : null;
+        res.json({
+            checksum,
+            algorithm,
+            file: filename,
+            size: stats.size,
+            storedChecksum: stored?.checksum || null,
+            storedAt: stored?.computedAt || null,
+            integrityOk
+        });
     } catch (e) {
         res.status(500).json({ error: 'Could not compute checksum' });
     }
@@ -2019,7 +2152,7 @@ app.post('/api/versions/:filename(*)/restore/:versionId', authenticateToken, (re
     const versionId = req.params.versionId;
     const parentPath = req.query.parentPath || '';
     const relativePath = path.join(parentPath, filename);
-    const filePath = safeResolvePath(relativePath);
+    const filePath = safeResolvePath(relativePath, req.baseDir);
 
     if (!filePath) {
         return res.status(400).json({ error: 'Invalid file path' });
@@ -2131,7 +2264,7 @@ app.post('/api/batch/move', authenticateToken, (req, res) => {
         return res.status(400).json({ error: 'Items array required' });
     }
 
-    const destDir = safeResolvePath(destination || '');
+    const destDir = safeResolvePath(destination || '', req.baseDir);
     if (!destDir || !fs.existsSync(destDir)) {
         return res.status(400).json({ error: 'Invalid destination' });
     }
@@ -2139,7 +2272,7 @@ app.post('/api/batch/move', authenticateToken, (req, res) => {
     const results = { moved: [], failed: [] };
 
     items.forEach(item => {
-        const sourcePath = safeResolvePath(item);
+        const sourcePath = safeResolvePath(item, req.baseDir);
         if (!sourcePath || !fs.existsSync(sourcePath)) {
             results.failed.push({ item, error: 'Not found' });
             return;
@@ -2153,6 +2286,9 @@ app.post('/api/batch/move', authenticateToken, (req, res) => {
                 return;
             }
             fs.renameSync(sourcePath, destPath);
+            // Migrate metadata to new path
+            const newRelPath = destination ? `${destination}/${itemName}` : itemName;
+            migrateFileMetadata(item, newRelPath);
             results.moved.push(item);
         } catch (e) {
             results.failed.push({ item, error: e.message });
@@ -2207,8 +2343,8 @@ app.post('/api/batch/rename', authenticateToken, (req, res) => {
             return;
         }
 
-        const oldPath = safeResolvePath(path.join(parentPath, item));
-        const newPath = safeResolvePath(path.join(parentPath, newName));
+        const oldPath = safeResolvePath(path.join(parentPath, item), req.baseDir);
+        const newPath = safeResolvePath(path.join(parentPath, newName), req.baseDir);
 
         if (!oldPath || !newPath || !fs.existsSync(oldPath)) {
             results.failed.push({ item, error: 'Invalid path' });
@@ -2221,6 +2357,10 @@ app.post('/api/batch/rename', authenticateToken, (req, res) => {
                 return;
             }
             fs.renameSync(oldPath, newPath);
+            // Migrate metadata to new path
+            const oldRelPath = parentPath ? `${parentPath}/${item}` : item;
+            const newRelPath = parentPath ? `${parentPath}/${newName}` : newName;
+            migrateFileMetadata(oldRelPath, newRelPath);
             results.renamed.push({ from: item, to: newName });
         } catch (e) {
             results.failed.push({ item, error: e.message });
@@ -2312,7 +2452,7 @@ app.delete('/api/notifications', authenticateToken, (req, res) => {
 app.get('/api/thumbnail/:filename(*)', (req, res) => {
     const filename = req.params.filename;
     const parentPath = req.query.parentPath || '';
-    const filePath = safeResolvePath(path.join(parentPath, filename));
+    const filePath = safeResolvePath(path.join(parentPath, filename), req.baseDir);
 
     if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({ error: 'File not found' });
@@ -2569,6 +2709,48 @@ app.put('/api/admin/users/:username/permissions', authenticateToken, requireAdmi
     res.json({ message: 'Permissions updated', user: { username, role: user.role, permissions: user.permissions, homeDir: user.homeDir } });
 });
 
+// File access management
+app.get('/api/admin/users/:username/file-access', authenticateToken, requireAdmin, (req, res) => {
+    const { username } = req.params;
+    if (!users[username]) return res.status(404).json({ error: 'User not found' });
+    res.json(fileAccess[username] || { mode: 'all', allowedPaths: [] });
+});
+
+app.put('/api/admin/users/:username/file-access', authenticateToken, requireAdmin, (req, res) => {
+    const { username } = req.params;
+    if (!users[username]) return res.status(404).json({ error: 'User not found' });
+    const { mode, allowedPaths } = req.body;
+    fileAccess[username] = {
+        mode: mode || 'all',
+        allowedPaths: Array.isArray(allowedPaths) ? allowedPaths : []
+    };
+    saveData(DATA_FILES.fileAccess, fileAccess);
+    logActivity('file-access', `Updated file access for: ${username}`, req.clientIp, req.user?.username);
+    res.json({ message: 'File access updated', fileAccess: fileAccess[username] });
+});
+
+// Get all files/folders for file access picker
+app.get('/api/admin/all-paths', authenticateToken, requireAdmin, (req, res) => {
+    function collectPaths(dir, basePath = '') {
+        let paths = [];
+        try {
+            const items = fs.readdirSync(dir);
+            for (const item of items) {
+                if (item.startsWith('.')) continue;
+                const fullPath = path.join(dir, item);
+                const relPath = basePath ? `${basePath}/${item}` : item;
+                const stats = fs.statSync(fullPath);
+                paths.push({ path: relPath, isFolder: stats.isDirectory(), name: item });
+                if (stats.isDirectory()) {
+                    paths = paths.concat(collectPaths(fullPath, relPath));
+                }
+            }
+        } catch (e) { }
+        return paths;
+    }
+    res.json(collectPaths(CONFIG.UPLOAD_DIR));
+});
+
 // ============================================================================
 // CLIPBOARD PASTE UPLOAD ROUTE
 // ============================================================================
@@ -2595,7 +2777,7 @@ app.post('/api/upload/paste', authenticateToken, (req, res) => {
         const ext = mimeType.split('/')[1] || 'png';
         const finalName = filename || `paste-${Date.now()}.${ext}`;
 
-        const targetDir = path.join(CONFIG.UPLOAD_DIR, parentPath.replace(/^\/+/, '').replace(/\.\./g, ''));
+        const targetDir = path.join(req.baseDir || CONFIG.UPLOAD_DIR, parentPath.replace(/^\/+/, '').replace(/\.\./g, ''));
         if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
 
         const filePath = path.join(targetDir, finalName);
@@ -2655,7 +2837,7 @@ app.get('/files', authenticateToken, (req, res) => {
 });
 
 app.get('/contents', authenticateToken, (req, res) => {
-    const folderPath = safeResolvePath(req.query.path || '');
+    const folderPath = safeResolvePath(req.query.path || '', req.baseDir);
     if (!folderPath || !fs.existsSync(folderPath)) {
         return res.status(404).json({ error: 'Folder not found' });
     }
@@ -2733,6 +2915,7 @@ app.put('/files/:filename', authenticateToken, (req, res) => {
     if (fs.existsSync(newPath)) return res.status(400).json({ error: 'A file with this name already exists' });
     try {
         fs.renameSync(oldPath, newPath);
+        migrateFileMetadata(oldName, newName);
         io.emit('file:renamed', { oldName, newName });
         logActivity('rename', `Renamed: ${oldName} → ${newName}`, req.clientIp, req.user?.username);
         res.json({ message: 'File renamed', oldName, newName });
@@ -2752,7 +2935,7 @@ app.post('/folders', authenticateToken, (req, res) => {
     if (name.includes('/') || name.includes('\\') || name.includes('..')) {
         return res.status(400).json({ error: 'Invalid folder name' });
     }
-    const parentDir = safeResolvePath(parentPath || '');
+    const parentDir = safeResolvePath(parentPath || '', req.baseDir);
     if (!parentDir) return res.status(400).json({ error: 'Invalid parent path' });
     const newFolderPath = path.join(parentDir, name);
     if (fs.existsSync(newFolderPath)) return res.status(400).json({ error: 'A folder with this name already exists' });
@@ -2770,7 +2953,7 @@ app.post('/folders', authenticateToken, (req, res) => {
 
 app.delete('/folders/*', authenticateToken, (req, res) => {
     const folderRelPath = req.params[0];
-    const folderPath = safeResolvePath(folderRelPath);
+    const folderPath = safeResolvePath(folderRelPath, req.baseDir);
     if (!folderPath || folderPath === CONFIG.UPLOAD_DIR) return res.status(400).json({ error: 'Invalid folder path' });
     if (!fs.existsSync(folderPath)) return res.status(404).json({ error: 'Folder not found' });
     try {
@@ -2785,8 +2968,8 @@ app.delete('/folders/*', authenticateToken, (req, res) => {
 
 app.post('/move', authenticateToken, (req, res) => {
     const { source, destination, name } = req.body;
-    const sourcePath = safeResolvePath(source);
-    const destDir = safeResolvePath(destination || '');
+    const sourcePath = safeResolvePath(source, req.baseDir);
+    const destDir = safeResolvePath(destination || '', req.baseDir);
     if (!sourcePath || !destDir) return res.status(400).json({ error: 'Invalid path' });
     if (!fs.existsSync(sourcePath)) return res.status(404).json({ error: 'Source not found' });
     const itemName = name || path.basename(sourcePath);
@@ -2794,6 +2977,8 @@ app.post('/move', authenticateToken, (req, res) => {
     if (fs.existsSync(destPath)) return res.status(400).json({ error: 'An item with this name already exists at destination' });
     try {
         fs.renameSync(sourcePath, destPath);
+        const newRelPath = destination ? `${destination}/${itemName}` : itemName;
+        migrateFileMetadata(source, newRelPath);
         io.emit('item:moved', { source, destination, name: itemName });
         logActivity('move', `Moved: ${source} → ${destination}/${itemName}`, req.clientIp, req.user?.username);
         res.json({ message: 'Item moved' });
