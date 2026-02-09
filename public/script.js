@@ -1058,7 +1058,7 @@ async function previewFile(filename) {
         const inlineUrl = `${url}&inline=true`;
         previewContainer.innerHTML = `<iframe src="${inlineUrl}#toolbar=1" class="pdf-preview"></iframe>`;
     } else if (ext === '.rtf') {
-        // RTF file preview - strip RTF tags and show as text
+        // RTF file preview with edit support
         try {
             const res = await fetch(`/api/preview/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}`, {
                 headers: getAuthHeaders()
@@ -1066,73 +1066,31 @@ async function previewFile(filename) {
             if (res.ok) {
                 const data = await res.json();
                 const plainText = stripRtf(data.content);
-                previewContainer.innerHTML = `<pre><code class="language-plaintext">${escapeHtml(plainText)}</code></pre>`;
+                renderEditablePreview(previewContainer, plainText, filename, parentPath, 'plaintext', data.content);
             }
         } catch (e) {
             downloadFile(filename);
             return;
         }
-    } else if (['.txt', '.csv', '.log'].includes(ext)) {
-        // Plain text file preview
+    } else if (['.txt', '.csv', '.log'].includes(ext) || file.type === 'code' || file.type === 'markdown') {
+        // All text-based files: code, markdown, txt, csv, log
         try {
             const res = await fetch(`/api/preview/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}`, {
                 headers: getAuthHeaders()
             });
             if (res.ok) {
                 const data = await res.json();
-                previewContainer.innerHTML = `<pre><code class="language-plaintext">${escapeHtml(data.content)}</code></pre>`;
-            }
-        } catch (e) {
-            downloadFile(filename);
-            return;
-        }
-    } else if (file.type === 'code' || file.type === 'markdown') {
-        // Fetch and display code with syntax highlighting
-        try {
-            const res = await fetch(`/api/preview/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}`, {
-                headers: getAuthHeaders()
-            });
-            if (res.ok) {
-                const data = await res.json();
-                const ext = filename.split('.').pop().toLowerCase();
+                const codeExt = filename.split('.').pop().toLowerCase();
                 const langMap = {
                     'js': 'javascript', 'ts': 'typescript', 'py': 'python',
                     'java': 'java', 'c': 'c', 'cpp': 'cpp', 'h': 'c',
                     'css': 'css', 'html': 'html', 'json': 'json',
                     'xml': 'xml', 'md': 'markdown', 'sql': 'sql',
-                    'sh': 'bash', 'yml': 'yaml', 'yaml': 'yaml'
+                    'sh': 'bash', 'yml': 'yaml', 'yaml': 'yaml',
+                    'txt': 'plaintext', 'csv': 'plaintext', 'log': 'plaintext'
                 };
-                const lang = langMap[ext] || 'plaintext';
-
-                if (file.type === 'markdown') {
-                    previewContainer.innerHTML = `
-                        <div class="markdown-editor-wrapper" style="width: 100%;">
-                            <div class="markdown-toolbar">
-                                <button class="btn-sm btn-secondary" id="mdEditBtn" onclick="toggleMarkdownEdit()">
-                                    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                                    </svg>
-                                    Düzenle
-                                </button>
-                                <button class="btn-sm btn-primary" id="mdSaveBtn" style="display: none;" onclick="saveMarkdownFile('${filename}')">
-                                    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                                    </svg>
-                                    Kaydet
-                                </button>
-                            </div>
-                            <div class="markdown-preview" id="mdPreviewContent">${marked.parse(data.content)}</div>
-                            <textarea class="markdown-editor" id="mdEditorContent" style="display: none;">${escapeHtml(data.content)}</textarea>
-                        </div>`;
-                } else {
-                    previewContainer.innerHTML = `<pre><code class="language-${lang}">${escapeHtml(data.content)}</code></pre>`;
-                    // Apply syntax highlighting if hljs is available
-                    if (window.hljs) {
-                        previewContainer.querySelectorAll('pre code').forEach(block => {
-                            hljs.highlightElement(block);
-                        });
-                    }
-                }
+                const lang = langMap[codeExt] || 'plaintext';
+                renderEditablePreview(previewContainer, data.content, filename, parentPath, lang, data.content);
             }
         } catch (e) {
             downloadFile(filename);
@@ -1155,62 +1113,209 @@ function escapeHtml(text) {
 
 function stripRtf(rtf) {
     if (!rtf) return '';
-    // Remove RTF header/control words and extract text
     let text = rtf;
-    // Remove RTF groups like {\fonttbl...}, {\colortbl...}, {\*\...}
-    text = text.replace(/\{\\[*]?[^{}]*\}/g, '');
-    // Remove remaining nested groups
-    let prev = '';
-    while (prev !== text) {
-        prev = text;
-        text = text.replace(/\{[^{}]*\}/g, '');
+
+    // 1. Convert \par and \line to newlines FIRST (before stripping)
+    text = text.replace(/\\par\s?/g, '\n');
+    text = text.replace(/\\line\s?/g, '\n');
+    text = text.replace(/\\tab\s?/g, '\t');
+
+    // 2. Remove {\*\...} destination groups
+    text = text.replace(/\{\\\*\\[^{}]+\}/g, '');
+
+    // 3. Remove known header groups: fonttbl, colortbl, stylesheet, info, etc.
+    let depth = 0;
+    let result = '';
+    let skipDepth = -1;
+    const headerGroups = ['fonttbl', 'colortbl', 'stylesheet', 'info', 'generator', 'pict', 'object', 'datafield'];
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === '{') {
+            depth++;
+            // Check if this group starts with a header keyword
+            const ahead = text.substring(i + 1, i + 30);
+            const headerMatch = ahead.match(/^\\([a-z]+)/);
+            if (headerMatch && headerGroups.includes(headerMatch[1])) {
+                skipDepth = depth;
+            }
+            continue;
+        }
+        if (ch === '}') {
+            if (depth === skipDepth) skipDepth = -1;
+            depth--;
+            continue;
+        }
+        if (skipDepth > 0 && depth >= skipDepth) continue;
+
+        // Handle control words
+        if (ch === '\\') {
+            const next = text[i + 1];
+            if (!next) continue;
+            // Escaped characters
+            if (next === '\\') { result += '\\'; i++; continue; }
+            if (next === '{') { result += '{'; i++; continue; }
+            if (next === '}') { result += '}'; i++; continue; }
+            if (next === '~') { result += '\u00A0'; i++; continue; } // non-breaking space
+            if (next === '-') { result += '\u00AD'; i++; continue; } // soft hyphen
+            if (next === '_') { result += '-'; i++; continue; } // non-breaking hyphen
+            if (next === "'") {
+                // Hex character like \'e9
+                const hex = text.substring(i + 2, i + 4);
+                const code = parseInt(hex, 16);
+                if (!isNaN(code)) {
+                    result += String.fromCharCode(code);
+                    i += 3;
+                    continue;
+                }
+            }
+            // Skip control word (e.g., \fs24, \b, \i0)
+            const ctrlMatch = text.substring(i).match(/^\\[a-z]+[-]?\d*\s?/i);
+            if (ctrlMatch) {
+                i += ctrlMatch[0].length - 1;
+                continue;
+            }
+            // Unknown escape, skip
+            i++;
+            continue;
+        }
+        result += ch;
     }
-    // Remove RTF control words (e.g., \par, \b, \i, \fs24)
-    text = text.replace(/\\[a-z]+[-]?\d*\s?/gi, '');
-    // Convert \par and \line to newlines
-    text = text.replace(/\\par\b/g, '\n');
-    text = text.replace(/\\line\b/g, '\n');
-    // Remove escaped special chars
-    text = text.replace(/\\\{/g, '{');
-    text = text.replace(/\\\}/g, '}');
-    text = text.replace(/\\\\/g, '\\');
-    // Remove remaining braces
-    text = text.replace(/[{}]/g, '');
-    // Clean up whitespace
-    text = text.replace(/\r\n/g, '\n');
-    text = text.replace(/\n{3,}/g, '\n\n');
-    return text.trim();
+
+    // Clean up
+    result = result.replace(/\r\n/g, '\n');
+    result = result.replace(/\n{3,}/g, '\n\n');
+    return result.trim();
 }
 
 window.closePreviewModal = () => {
+    // Save before closing if in edit mode
+    if (_editorAutoSaveTimer) {
+        clearTimeout(_editorAutoSaveTimer);
+        _editorAutoSaveTimer = null;
+    }
+    const editor = document.getElementById('fileEditorContent');
+    if (editor && editor.style.display !== 'none' && _editorCurrentFile) {
+        saveFileContent(_editorCurrentFile.filename, _editorCurrentFile.parentPath, true);
+    }
+    _editorCurrentFile = null;
     previewModal?.classList.remove('active');
     if (previewContainer) previewContainer.innerHTML = '';
 };
 
-// Markdown edit/save functions
-window.toggleMarkdownEdit = () => {
-    const preview = document.getElementById('mdPreviewContent');
-    const editor = document.getElementById('mdEditorContent');
-    const editBtn = document.getElementById('mdEditBtn');
-    const saveBtn = document.getElementById('mdSaveBtn');
+// ============================================================================
+// UNIVERSAL FILE EDITOR
+// ============================================================================
+let _editorAutoSaveTimer = null;
+let _editorCurrentFile = null;
+let _editorOriginalContent = '';
+let _editorIsSaving = false;
 
-    if (!preview || !editor) return;
+function renderEditablePreview(container, displayContent, filename, parentPath, lang, rawContent) {
+    const isMarkdown = lang === 'markdown';
+    const escapedFilename = escapeHtml(filename);
+
+    _editorCurrentFile = { filename, parentPath };
+    _editorOriginalContent = rawContent;
+
+    // Build preview content
+    let previewHtml;
+    if (isMarkdown) {
+        previewHtml = `<div class="markdown-preview" id="filePreviewContent">${marked.parse(displayContent)}</div>`;
+    } else {
+        previewHtml = `<pre id="filePreviewContent"><code class="language-${lang}">${escapeHtml(displayContent)}</code></pre>`;
+    }
+
+    container.innerHTML = `
+        <div class="file-editor-wrapper">
+            <div class="file-editor-toolbar">
+                <button class="btn-sm btn-secondary" id="fileEditBtn" onclick="toggleFileEdit()">
+                    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                    </svg>
+                    Düzenle
+                </button>
+                <span class="editor-save-status" id="editorSaveStatus"></span>
+            </div>
+            ${previewHtml}
+            <textarea class="file-editor-textarea" id="fileEditorContent" style="display: none;">${escapeHtml(rawContent)}</textarea>
+        </div>`;
+
+    // Apply syntax highlighting
+    if (!isMarkdown && window.hljs) {
+        container.querySelectorAll('pre code').forEach(block => {
+            hljs.highlightElement(block);
+        });
+    }
+}
+
+window.toggleFileEdit = () => {
+    const preview = document.getElementById('filePreviewContent');
+    const editor = document.getElementById('fileEditorContent');
+    const editBtn = document.getElementById('fileEditBtn');
+
+    if (!editor) return;
 
     if (editor.style.display === 'none') {
         // Switch to edit mode
-        preview.style.display = 'none';
+        if (preview) preview.style.display = 'none';
         editor.style.display = 'block';
         editBtn.innerHTML = `<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
         </svg> Önizle`;
-        saveBtn.style.display = 'inline-flex';
         editor.focus();
+
+        // Setup auto-save on input
+        editor.addEventListener('input', handleEditorInput);
+
+        // Tab key support for indentation
+        editor.addEventListener('keydown', (e) => {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = editor.selectionStart;
+                const end = editor.selectionEnd;
+                editor.value = editor.value.substring(0, start) + '    ' + editor.value.substring(end);
+                editor.selectionStart = editor.selectionEnd = start + 4;
+                handleEditorInput();
+            }
+            // Ctrl+S / Cmd+S manual save
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                if (_editorAutoSaveTimer) clearTimeout(_editorAutoSaveTimer);
+                if (_editorCurrentFile) {
+                    saveFileContent(_editorCurrentFile.filename, _editorCurrentFile.parentPath);
+                }
+            }
+        });
     } else {
-        // Switch to preview mode
+        // Switch to preview mode - save first
+        if (_editorCurrentFile) {
+            saveFileContent(_editorCurrentFile.filename, _editorCurrentFile.parentPath);
+        }
         const content = editor.value;
-        preview.innerHTML = marked.parse(content);
-        preview.style.display = 'block';
+        if (preview) {
+            // Re-render preview
+            const isMarkdown = _editorCurrentFile?.filename?.endsWith('.md');
+            if (isMarkdown) {
+                preview.innerHTML = marked.parse(content);
+            } else {
+                const codeExt = _editorCurrentFile?.filename?.split('.').pop().toLowerCase() || 'plaintext';
+                const langMap = {
+                    'js': 'javascript', 'ts': 'typescript', 'py': 'python',
+                    'java': 'java', 'c': 'c', 'cpp': 'cpp', 'h': 'c',
+                    'css': 'css', 'html': 'html', 'json': 'json',
+                    'xml': 'xml', 'sql': 'sql', 'sh': 'bash',
+                    'yml': 'yaml', 'yaml': 'yaml'
+                };
+                const lang = langMap[codeExt] || 'plaintext';
+                preview.innerHTML = `<code class="language-${lang}">${escapeHtml(content)}</code>`;
+                if (window.hljs) {
+                    preview.querySelectorAll('code').forEach(block => hljs.highlightElement(block));
+                }
+            }
+            preview.style.display = '';
+        }
         editor.style.display = 'none';
         editBtn.innerHTML = `<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
@@ -1218,12 +1323,36 @@ window.toggleMarkdownEdit = () => {
     }
 };
 
-window.saveMarkdownFile = async (filename) => {
-    const editor = document.getElementById('mdEditorContent');
+function handleEditorInput() {
+    // Debounced auto-save: save 1.5s after user stops typing
+    if (_editorAutoSaveTimer) clearTimeout(_editorAutoSaveTimer);
+
+    const status = document.getElementById('editorSaveStatus');
+    if (status) {
+        status.textContent = 'Kaydedilmemiş değişiklikler...';
+        status.className = 'editor-save-status unsaved';
+    }
+
+    _editorAutoSaveTimer = setTimeout(() => {
+        if (_editorCurrentFile) {
+            saveFileContent(_editorCurrentFile.filename, _editorCurrentFile.parentPath);
+        }
+    }, 1500);
+}
+
+async function saveFileContent(filename, parentPath, silent = false) {
+    if (_editorIsSaving) return;
+    const editor = document.getElementById('fileEditorContent');
     if (!editor) return;
 
     const content = editor.value;
-    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+    _editorIsSaving = true;
+
+    const status = document.getElementById('editorSaveStatus');
+    if (status) {
+        status.textContent = 'Kaydediliyor...';
+        status.className = 'editor-save-status saving';
+    }
 
     try {
         const res = await fetch(`/api/preview/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}`, {
@@ -1233,20 +1362,35 @@ window.saveMarkdownFile = async (filename) => {
         });
 
         if (res.ok) {
-            showToast('Dosya kaydedildi', 'success');
-            // Update preview
-            const preview = document.getElementById('mdPreviewContent');
-            if (preview) {
-                preview.innerHTML = marked.parse(content);
+            _editorOriginalContent = content;
+            if (status) {
+                status.textContent = 'Kaydedildi';
+                status.className = 'editor-save-status saved';
+                setTimeout(() => {
+                    if (status.textContent === 'Kaydedildi') {
+                        status.textContent = '';
+                    }
+                }, 2000);
+            }
+            if (!silent) {
+                // Don't show toast for auto-saves to avoid spam
             }
         } else {
             const data = await res.json();
-            showToast(data.error || 'Kaydetme başarısız', 'error');
+            if (status) {
+                status.textContent = 'Kaydetme hatası!';
+                status.className = 'editor-save-status error';
+            }
+            if (!silent) showToast(data.error || 'Kaydetme başarısız', 'error');
         }
     } catch (e) {
-        showToast('Kaydetme başarısız', 'error');
+        if (status) {
+            status.textContent = 'Kaydetme hatası!';
+            status.className = 'editor-save-status error';
+        }
     }
-};
+    _editorIsSaving = false;
+}
 
 // Copy VLC link function
 window.copyVlcLink = () => {
