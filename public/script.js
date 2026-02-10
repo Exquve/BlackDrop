@@ -624,6 +624,7 @@ function renderGrid(files) {
 
         // Drag & Drop
         card.addEventListener('dragstart', handleDragStart);
+        card.addEventListener('dragend', handleDragEnd);
         if (file.isFolder) {
             card.addEventListener('dragover', handleDragOver);
             card.addEventListener('dragleave', handleDragLeave);
@@ -2432,6 +2433,11 @@ function handleDragStart(e) {
     }
 }
 
+function handleDragEnd(e) {
+    const card = e.target.closest('.file-card');
+    card?.classList.remove('dragging');
+}
+
 function handleDragOver(e) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
@@ -2697,14 +2703,8 @@ document.addEventListener('paste', async (e) => {
 // ============================================================================
 let notificationCount = 0;
 
-socket.on('notification:new', (notification) => {
-    notificationCount++;
-    updateNotificationBadge();
-    if (Notification.permission === 'granted') {
-        new Notification('BlackDrop', { body: notification.message, icon: '/favicon.ico' });
-    }
-    showToast(notification.message, 'info');
-});
+// Notifications disabled
+// socket.on('notification:new', ...);
 
 function updateNotificationBadge() {
     const badge = document.getElementById('notificationBadge');

@@ -200,12 +200,6 @@
                     </svg>
                 </button>
 
-                <button class="icon-btn notification-btn" onclick="showNotificationPanel()" title="Bildirimler">
-                    <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                    </svg>
-                    <span class="notification-badge" id="notificationBadge" style="display:none">0</span>
-                </button>
 
                 <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
                     <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -924,27 +918,6 @@
         </div>
     </div>
 
-    <!-- Notification Modal -->
-    <div id="notificationModal" class="modal-overlay">
-        <div class="modal modal-lg">
-            <div class="modal-header">
-                <h3>Bildirimler</h3>
-                <button class="close-btn" onclick="closeNotificationModal()">
-                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div class="notification-list" id="notificationList"></div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" onclick="clearAllNotifications()">Temizle</button>
-                <button class="btn-primary" onclick="markAllNotificationsRead()">Tumunu Okundu Isaretle</button>
-                <button class="btn-secondary" onclick="closeNotificationModal()">Kapat</button>
-            </div>
-        </div>
-    </div>
 
     <!-- Comments Modal -->
     <div id="commentsModal" class="modal-overlay">
