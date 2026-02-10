@@ -1074,21 +1074,19 @@
                     <button class="btn btn-secondary" onclick="cleanupExpiredShares()">🔗 Süresi Dolmuş Paylaşımları Sil</button>
                 </div>
             </div>
-        </div>
-        
-        <!-- Add Storage Location Modal -->
-        <div id="addStorageModal" class="modal">
-            <div class="modal-content" style="max-width: 500px;">
-                <div class="modal-header">
-                    <h3>📂 Yeni Depolama Konumu Ekle</h3>
-                    <button class="modal-close" onclick="closeAddStorageModal()">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="form-group">
+
+            <!-- Add Storage Location Modal -->
+            <div id="addStorageModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:1000; align-items:center; justify-content:center;">
+                <div class="admin-card" style="max-width: 500px; width: 90%; margin: auto; position: relative; top: 50%; transform: translateY(-50%);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
+                        <h3 style="margin:0;">📂 Yeni Depolama Konumu Ekle</h3>
+                        <button class="btn btn-sm btn-secondary" onclick="closeAddStorageModal()" style="font-size:1.2rem; line-height:1; padding:0.25rem 0.5rem;">&times;</button>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1rem;">
                         <label>Konum Adı</label>
                         <input type="text" id="storageLocationName" class="form-input" placeholder="Örn: Harici Disk, SSD, NAS">
                     </div>
-                    <div class="form-group">
+                    <div class="form-group" style="margin-bottom: 1rem;">
                         <label>Klasör Yolu</label>
                         <input type="text" id="storageLocationPath" class="form-input" placeholder="/Volumes/MyDisk/BlackDrop">
                         <small style="color: var(--text-secondary);">
@@ -1096,14 +1094,21 @@
                             Klasör yoksa otomatik oluşturulur.
                         </small>
                     </div>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-secondary" onclick="closeAddStorageModal()">İptal</button>
-                    <button class="btn btn-primary" onclick="addStorageLocation()">Ekle</button>
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label>Alan Limiti (GB)</label>
+                        <input type="number" id="storageLocationLimit" class="form-input" placeholder="Örn: 10" min="1" step="1">
+                        <small style="color: var(--text-secondary);">
+                            Bu konum için maksimum kullanılabilir alan. Limit dolunca sonraki konuma geçilir.
+                        </small>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                        <button class="btn btn-secondary" onclick="closeAddStorageModal()">İptal</button>
+                        <button class="btn btn-primary" onclick="addStorageLocation()">Ekle</button>
+                    </div>
                 </div>
             </div>
         </div>
-        
+
         <!-- Security -->
         <div id="security" class="admin-content">
             <div class="admin-header">
@@ -1430,6 +1435,8 @@
                 case 'security': loadSecuritySettings(); break;
                 case 'ip': loadIpSettings(); break;
                 case 'settings': loadGeneralSettings(); break;
+                case 'backup': loadBackups(); break;
+                case 'users': loadUsers(); break;
             }
         }
         
@@ -1641,6 +1648,10 @@
                 container.innerHTML = locations.map(loc => {
                     const safeName = (loc.name || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
                     const safeId = loc.id || '';
+                    const usedBytes = loc.diskInfo?.usedByBlackDrop || 0;
+                    const limitBytes = loc.limit || 0;
+                    const usagePercent = limitBytes > 0 ? Math.min(100, (usedBytes / limitBytes * 100)).toFixed(1) : 0;
+                    const barColor = usagePercent > 90 ? '#ef4444' : usagePercent > 70 ? '#f59e0b' : 'var(--accent)';
                     return `
                     <div class="storage-location-item ${loc.isDefault ? 'default' : ''} ${!loc.enabled ? 'disabled' : ''}">
                         <div class="storage-location-info">
@@ -1653,11 +1664,16 @@
                             </div>
                             <div class="storage-location-path">${loc.path || '-'}</div>
                             <div class="storage-location-stats">
-                                <span>BlackDrop: ${formatSize(loc.diskInfo?.usedByBlackDrop || 0)}</span>
-                                ${loc.diskInfo?.total ? `<span>Disk: ${formatSize(loc.diskInfo.used || 0)} / ${formatSize(loc.diskInfo.total || 0)}</span>` : ''}
+                                <span>Kullanım: ${formatSize(usedBytes)} / ${limitBytes > 0 ? formatSize(limitBytes) : 'Limitsiz'}</span>
+                                <span>${usagePercent}%</span>
                             </div>
+                            ${limitBytes > 0 ? `
+                            <div style="background: var(--bg-tertiary); border-radius: 4px; height: 6px; margin-top: 0.5rem; overflow: hidden;">
+                                <div style="background: ${barColor}; height: 100%; width: ${usagePercent}%; border-radius: 4px; transition: width 0.3s;"></div>
+                            </div>` : ''}
                         </div>
                         <div class="storage-location-actions">
+                            <button class="btn btn-sm btn-secondary" onclick="editStorageLimit('${safeId}', ${limitBytes})" title="Limiti Düzenle">📏</button>
                             ${!loc.isDefault ? `
                                 <button class="btn btn-sm btn-secondary" onclick="setDefaultStorage('${safeId}')" title="Varsayılan Yap">⭐</button>
                                 <button class="btn btn-sm ${loc.enabled ? 'btn-warning' : 'btn-success'}" onclick="toggleStorageLocation('${safeId}', ${!loc.enabled})" title="${loc.enabled ? 'Devre Dışı Bırak' : 'Etkinleştir'}">
@@ -1665,11 +1681,34 @@
                                 </button>
                                 <button class="btn btn-sm btn-danger" onclick="deleteStorageLocation('${safeId}', '${safeName}')" title="Sil">🗑️</button>
                             ` : `
-                                <span style="color: var(--text-secondary); font-size: 0.85rem;">Ana konum silinemez</span>
+                                <span style="color: var(--text-secondary); font-size: 0.85rem;">Ana konum</span>
                             `}
                         </div>
                     </div>`;
                 }).join('');
+
+                // Show total capacity summary
+                const totalLimit = locations.filter(l => l.enabled).reduce((sum, l) => sum + (l.limit || 0), 0);
+                const totalUsed = locations.filter(l => l.enabled).reduce((sum, l) => sum + (l.diskInfo?.usedByBlackDrop || 0), 0);
+                const totalPercent = totalLimit > 0 ? Math.min(100, (totalUsed / totalLimit * 100)).toFixed(1) : 0;
+                container.insertAdjacentHTML('beforebegin',
+                    document.getElementById('storageTotalSummary') ? '' : '');
+                let summary = document.getElementById('storageTotalSummary');
+                if (!summary) {
+                    summary = document.createElement('div');
+                    summary.id = 'storageTotalSummary';
+                    summary.style.cssText = 'margin-bottom: 1rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 0.75rem; border: 1px solid var(--border);';
+                    container.parentNode.insertBefore(summary, container);
+                }
+                summary.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <strong>Toplam Depolama</strong>
+                        <span>${formatSize(totalUsed)} / ${formatSize(totalLimit)}</span>
+                    </div>
+                    <div style="background: var(--bg-primary); border-radius: 4px; height: 8px; overflow: hidden;">
+                        <div style="background: var(--accent); height: 100%; width: ${totalPercent}%; border-radius: 4px; transition: width 0.3s;"></div>
+                    </div>
+                `;
             } catch (e) {
                 console.error('Storage locations load error:', e);
                 container.innerHTML = '<div class="error-state">Depolama konumları yüklenemedi</div>';
@@ -1679,27 +1718,36 @@
         function showAddStorageModal() {
             document.getElementById('storageLocationName').value = '';
             document.getElementById('storageLocationPath').value = '';
-            document.getElementById('addStorageModal').classList.add('active');
+            document.getElementById('storageLocationLimit').value = '';
+            document.getElementById('addStorageModal').style.display = 'flex';
         }
-        
+
         function closeAddStorageModal() {
-            document.getElementById('addStorageModal').classList.remove('active');
+            document.getElementById('addStorageModal').style.display = 'none';
         }
         
         async function addStorageLocation() {
             const name = document.getElementById('storageLocationName').value.trim();
             const path = document.getElementById('storageLocationPath').value.trim();
-            
+            const limitGB = document.getElementById('storageLocationLimit').value.trim();
+
             if (!name || !path) {
                 showToast('Ad ve yol gerekli', 'error');
                 return;
             }
-            
+
+            if (!limitGB || parseFloat(limitGB) <= 0) {
+                showToast('Geçerli bir alan limiti girin', 'error');
+                return;
+            }
+
+            const limit = parseFloat(limitGB) * 1024 * 1024 * 1024; // GB to bytes
+
             try {
                 const res = await fetch('/api/admin/storage-locations', {
                     method: 'POST',
                     headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, path })
+                    body: JSON.stringify({ name, path, limit })
                 });
                 
                 const data = await res.json();
@@ -1776,7 +1824,35 @@
                 showToast('Bağlantı hatası', 'error');
             }
         }
-        
+
+        async function editStorageLimit(id, currentLimitBytes) {
+            const currentGB = currentLimitBytes > 0 ? (currentLimitBytes / (1024 * 1024 * 1024)).toFixed(1) : '';
+            const newGB = prompt(`Yeni alan limiti (GB):`, currentGB);
+            if (newGB === null) return;
+            const parsed = parseFloat(newGB);
+            if (isNaN(parsed) || parsed <= 0) {
+                showToast('Geçerli bir değer girin', 'error');
+                return;
+            }
+            const limit = parsed * 1024 * 1024 * 1024;
+            try {
+                const res = await fetch(`/api/admin/storage-locations/${id}`, {
+                    method: 'PUT',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ limit })
+                });
+                if (res.ok) {
+                    showToast('Alan limiti güncellendi', 'success');
+                    loadStorageLocations();
+                } else {
+                    const data = await res.json();
+                    showToast(data.error || 'Hata oluştu', 'error');
+                }
+            } catch (e) {
+                showToast('Bağlantı hatası', 'error');
+            }
+        }
+
         async function emptyTrash() {
             if (!confirm('Çöp kutusundaki tüm dosyalar kalıcı olarak silinecek. Emin misiniz?')) return;
             
@@ -2293,13 +2369,6 @@
             loadCharts();
         };
 
-        // ========== MODIFY SHOW SECTION ==========
-        const _originalShowSection = showSection;
-        showSection = function(section) {
-            _originalShowSection(section);
-            if (section === 'backup') loadBackups();
-            if (section === 'users') loadUsers();
-        };
 
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {

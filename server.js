@@ -100,7 +100,7 @@ let downloadCounts = loadData(DATA_FILES.downloads, {});
 let ipConfig = loadData(DATA_FILES.ipConfig, { whitelist: [], blacklist: [], mode: 'none' });
 let settings = loadData(DATA_FILES.settings, { authEnabled: false, notificationsEnabled: false });
 let storageLocations = loadData(DATA_FILES.storageLocations, [
-    { id: 'default', name: 'Ana Depolama', path: CONFIG.UPLOAD_DIR, enabled: true, isDefault: true }
+    { id: 'default', name: 'Ana Depolama', path: CONFIG.UPLOAD_DIR, enabled: true, isDefault: true, limit: CONFIG.TOTAL_QUOTA }
 ]);
 
 // Restore CONFIG.UPLOAD_DIR from saved default storage location on startup
@@ -108,6 +108,15 @@ const savedDefault = storageLocations.find(loc => loc.isDefault);
 if (savedDefault && savedDefault.path && fs.existsSync(savedDefault.path)) {
     CONFIG.UPLOAD_DIR = savedDefault.path;
 }
+// Ensure all storage locations have a limit field
+let storageNeedsSave = false;
+for (const loc of storageLocations) {
+    if (typeof loc.limit === 'undefined') {
+        loc.limit = loc.isDefault ? CONFIG.TOTAL_QUOTA : 0;
+        storageNeedsSave = true;
+    }
+}
+if (storageNeedsSave) saveData(DATA_FILES.storageLocations, storageLocations);
 
 let comments = loadData(DATA_FILES.comments, {});
 let fileVersions = loadData(DATA_FILES.fileVersions, {});
@@ -270,6 +279,47 @@ function getUserBaseDir(req) {
     const homeDir = path.join(CONFIG.UPLOAD_DIR, user.homeDir);
     if (!fs.existsSync(homeDir)) fs.mkdirSync(homeDir, { recursive: true });
     return homeDir;
+}
+
+// Get all enabled storage locations
+function getEnabledStorageLocations() {
+    return storageLocations.filter(loc => loc.enabled);
+}
+
+// Find a file across all enabled storage locations
+function findFileAcrossStorages(relativePath) {
+    const locations = getEnabledStorageLocations();
+    const defaultLoc = locations.find(l => l.isDefault);
+    if (defaultLoc) {
+        const fullPath = path.join(defaultLoc.path, relativePath);
+        if (fs.existsSync(fullPath)) return { fullPath, location: defaultLoc };
+    }
+    for (const loc of locations.filter(l => !l.isDefault)) {
+        const fullPath = path.join(loc.path, relativePath);
+        if (fs.existsSync(fullPath)) return { fullPath, location: loc };
+    }
+    return null;
+}
+
+// Get the best upload destination based on storage limits
+function getUploadDestination(fileSize = 0) {
+    const locations = getEnabledStorageLocations();
+    const sorted = [...locations].sort((a, b) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0));
+    for (const loc of sorted) {
+        if (loc.limit && loc.limit > 0) {
+            const used = getDirectorySizeRecursive(loc.path);
+            if (used + fileSize <= loc.limit) return loc;
+        } else {
+            return loc;
+        }
+    }
+    return null;
+}
+
+// Resolve file path across all storages (for superadmin)
+function resolveFilePathAcrossStorages(relativePath) {
+    const result = findFileAcrossStorages(relativePath);
+    return result ? result.fullPath : null;
 }
 
 function logActivity(action, details, ip, user = 'anonymous') {
@@ -494,15 +544,21 @@ app.use(ipFilter);
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const baseDir = req.baseDir || CONFIG.UPLOAD_DIR;
+        let baseDir = req.baseDir || CONFIG.UPLOAD_DIR;
+        // For superadmin, check storage limits and pick best destination
+        if (!req.user || req.user.role === 'superadmin') {
+            const dest = getUploadDestination(parseInt(req.headers['content-length']) || 0);
+            if (dest) baseDir = dest.path;
+        }
         const parentPath = (req.query.parentPath || '').replace(/^\/+/, '').replace(/\.\./g, '');
         const targetDir = path.join(baseDir, parentPath);
         if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
         req.uploadParentPath = parentPath;
+        req.uploadBaseDir = baseDir;
         cb(null, targetDir);
     },
     filename: (req, file, cb) => {
-        const baseDir = req.baseDir || CONFIG.UPLOAD_DIR;
+        const baseDir = req.uploadBaseDir || req.baseDir || CONFIG.UPLOAD_DIR;
         const parentPath = (req.query.parentPath || '').replace(/^\/+/, '').replace(/\.\./g, '');
         const targetDir = path.join(baseDir, parentPath);
         let filename = file.originalname;
@@ -691,7 +747,22 @@ app.post('/api/upload/chunk', authenticateToken, chunkUpload.single('chunk'), (r
 app.post('/api/upload/complete', authenticateToken, async (req, res) => {
     const { uploadId, filename, totalChunks, parentPath = '' } = req.body;
     const chunkDir = path.join(CONFIG.DATA_DIR, 'chunks', uploadId);
-    const targetDir = path.join(CONFIG.UPLOAD_DIR, parentPath.replace(/^\/+/, '').replace(/\.\./g, ''));
+
+    // Calculate total size from chunks to determine destination
+    let totalSize = 0;
+    for (let i = 0; i < totalChunks; i++) {
+        const chunkPath = path.join(chunkDir, `chunk-${i}`);
+        if (fs.existsSync(chunkPath)) totalSize += fs.statSync(chunkPath).size;
+    }
+
+    // Pick best storage destination based on limits
+    let destDir = CONFIG.UPLOAD_DIR;
+    if (!req.user || req.user.role === 'superadmin') {
+        const dest = getUploadDestination(totalSize);
+        if (dest) destDir = dest.path;
+    }
+
+    const targetDir = path.join(destDir, parentPath.replace(/^\/+/, '').replace(/\.\./g, ''));
     
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
     
@@ -727,24 +798,33 @@ app.post('/api/upload/complete', authenticateToken, async (req, res) => {
 // List contents
 app.get('/api/contents', authenticateToken, (req, res) => {
     const baseDir = req.baseDir || CONFIG.UPLOAD_DIR;
-    const folderPath = safeResolvePath(req.query.path || '', baseDir);
-    if (!folderPath || !fs.existsSync(folderPath)) {
-        return res.status(404).json({ error: 'Folder not found' });
-    }
-
     const currentRelPath = req.query.path || '';
+    const isSuperAdmin = !req.user || req.user.role === 'superadmin';
 
     try {
-        const items = fs.readdirSync(folderPath);
-        let contents = items
-            .filter(item => !item.startsWith('.'))
-            .map(item => {
+        const seenNames = new Set();
+        let contents = [];
+
+        // For superadmin: aggregate files from all enabled storage locations
+        const locationsToScan = isSuperAdmin ? getEnabledStorageLocations() : [{ path: baseDir }];
+        // Sort so default location comes first (its files take priority for duplicates)
+        locationsToScan.sort((a, b) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0));
+
+        for (const loc of locationsToScan) {
+            const locBaseDir = loc.path || baseDir;
+            const folderPath = safeResolvePath(currentRelPath, locBaseDir);
+            if (!folderPath || !fs.existsSync(folderPath)) continue;
+
+            const items = fs.readdirSync(folderPath);
+            for (const item of items) {
+                if (item.startsWith('.') || seenNames.has(item)) continue;
                 const itemPath = path.join(folderPath, item);
                 try {
                     const stats = fs.statSync(itemPath);
                     const isFolder = stats.isDirectory();
-                    const relativePath = itemPath.replace(baseDir, '').replace(/^\//, '');
-                    return {
+                    const relativePath = currentRelPath ? `${currentRelPath}/${item}` : item;
+                    seenNames.add(item);
+                    contents.push({
                         name: item,
                         isFolder,
                         size: isFolder ? getDirectorySizeRecursive(itemPath) : stats.size,
@@ -754,10 +834,10 @@ app.get('/api/contents', authenticateToken, (req, res) => {
                         isFavorite: favorites.includes(relativePath),
                         tags: tags[relativePath] || [],
                         downloadCount: downloadCounts[relativePath] || 0
-                    };
-                } catch (e) { return null; }
-            })
-            .filter(item => item !== null);
+                    });
+                } catch (e) { /* skip unreadable */ }
+            }
+        }
 
         // Apply file-level access control for non-superadmin users
         const username = req.user?.username;
@@ -767,11 +847,8 @@ app.get('/api/contents', authenticateToken, (req, res) => {
             contents = contents.filter(item => {
                 const itemRelPath = currentRelPath ? `${currentRelPath}/${item.name}` : item.name;
                 return allowed.some(ap => {
-                    // Exact match
                     if (itemRelPath === ap) return true;
-                    // Item is inside an allowed folder
                     if (itemRelPath.startsWith(ap + '/')) return true;
-                    // Item is a parent folder of an allowed path (show folder so user can navigate to it)
                     if (ap.startsWith(itemRelPath + '/')) return true;
                     return false;
                 });
@@ -795,7 +872,14 @@ app.get('/api/download/:filename(*)', (req, res) => {
     const filename = req.params.filename;
     const parentPath = req.query.parentPath || '';
     const inline = req.query.inline === 'true';
-    const filePath = safeResolvePath(path.join(parentPath, filename), req.baseDir);
+    let filePath = safeResolvePath(path.join(parentPath, filename), req.baseDir);
+
+    // If not found in baseDir, search across all storages
+    if (!filePath || !fs.existsSync(filePath)) {
+        const relativePath = parentPath ? `${parentPath}/${filename}` : filename;
+        const found = findFileAcrossStorages(relativePath);
+        if (found) filePath = found.fullPath;
+    }
 
     if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({ error: 'File not found' });
@@ -819,7 +903,13 @@ app.get('/api/download/:filename(*)', (req, res) => {
 app.delete('/api/files/:filename(*)', authenticateToken, (req, res) => {
     const filename = req.params.filename;
     const parentPath = req.query.parentPath || '';
-    const filePath = safeResolvePath(path.join(parentPath, filename), req.baseDir);
+    let filePath = safeResolvePath(path.join(parentPath, filename), req.baseDir);
+
+    if (!filePath || !fs.existsSync(filePath)) {
+        const relativePath = parentPath ? `${parentPath}/${filename}` : filename;
+        const found = findFileAcrossStorages(relativePath);
+        if (found) filePath = found.fullPath;
+    }
 
     if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({ error: 'File not found' });
@@ -862,7 +952,13 @@ app.delete('/api/files/:filename(*)', authenticateToken, (req, res) => {
 app.delete('/api/files/:filename(*)/permanent', authenticateToken, (req, res) => {
     const filename = req.params.filename;
     const parentPath = req.query.parentPath || '';
-    const filePath = safeResolvePath(path.join(parentPath, filename), req.baseDir);
+    let filePath = safeResolvePath(path.join(parentPath, filename), req.baseDir);
+
+    if (!filePath || !fs.existsSync(filePath)) {
+        const relativePath = parentPath ? `${parentPath}/${filename}` : filename;
+        const found = findFileAcrossStorages(relativePath);
+        if (found) filePath = found.fullPath;
+    }
 
     if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({ error: 'File not found' });
@@ -886,12 +982,21 @@ app.put('/api/files/:filename(*)', authenticateToken, (req, res) => {
 
     if (!newName) return res.status(400).json({ error: 'New name is required' });
 
-    const oldPath = safeResolvePath(path.join(parentPath, oldName), req.baseDir);
-    const newPath = safeResolvePath(path.join(parentPath, newName), req.baseDir);
+    let oldPath = safeResolvePath(path.join(parentPath, oldName), req.baseDir);
+
+    // If not found in baseDir, search across storages
+    if (!oldPath || !fs.existsSync(oldPath)) {
+        const relativePath = parentPath ? `${parentPath}/${oldName}` : oldName;
+        const found = findFileAcrossStorages(relativePath);
+        if (found) oldPath = found.fullPath;
+    }
 
     if (!oldPath || !fs.existsSync(oldPath)) {
         return res.status(404).json({ error: 'File not found' });
     }
+
+    // New path should be in the same directory as the old file
+    const newPath = path.join(path.dirname(oldPath), newName);
 
     if (fs.existsSync(newPath)) {
         return res.status(400).json({ error: 'A file with this name already exists' });
@@ -990,7 +1095,12 @@ app.post('/api/files/create', authenticateToken, (req, res) => {
 // Delete folder
 app.delete('/api/folders/*', authenticateToken, (req, res) => {
     const folderRelPath = req.params[0];
-    const folderPath = safeResolvePath(folderRelPath, req.baseDir);
+    let folderPath = safeResolvePath(folderRelPath, req.baseDir);
+
+    if (!folderPath || !fs.existsSync(folderPath)) {
+        const found = findFileAcrossStorages(folderRelPath);
+        if (found) folderPath = found.fullPath;
+    }
 
     if (!folderPath || folderPath === CONFIG.UPLOAD_DIR) {
         return res.status(400).json({ error: 'Invalid folder path' });
@@ -1031,8 +1141,13 @@ app.delete('/api/folders/*', authenticateToken, (req, res) => {
 app.post('/api/move', authenticateToken, (req, res) => {
     const { source, destination, name } = req.body;
 
-    const sourcePath = safeResolvePath(source, req.baseDir);
+    let sourcePath = safeResolvePath(source, req.baseDir);
     const destDir = safeResolvePath(destination || '', req.baseDir);
+
+    if (!sourcePath || !fs.existsSync(sourcePath)) {
+        const found = findFileAcrossStorages(source);
+        if (found) sourcePath = found.fullPath;
+    }
 
     if (!sourcePath || !destDir) return res.status(400).json({ error: 'Invalid path' });
     if (!fs.existsSync(sourcePath)) return res.status(404).json({ error: 'Source not found' });
@@ -1631,8 +1746,18 @@ app.delete('/api/activity', authenticateToken, (req, res) => {
 
 // Dashboard stats
 app.get('/api/admin/stats', authenticateToken, requireAdmin, (req, res) => {
-    const totalFiles = countFiles(CONFIG.UPLOAD_DIR);
-    const totalSize = getDirectorySizeRecursive(CONFIG.UPLOAD_DIR);
+    // Aggregate stats across all enabled storage locations
+    let totalFilesCount = { files: 0, folders: 0 };
+    let totalSize = 0;
+    const enabledLocations = getEnabledStorageLocations();
+    for (const loc of enabledLocations) {
+        if (fs.existsSync(loc.path)) {
+            const counts = countFiles(loc.path);
+            totalFilesCount.files += counts.files;
+            totalFilesCount.folders += counts.folders;
+            totalSize += getDirectorySizeRecursive(loc.path);
+        }
+    }
     const trashSize = getDirectorySizeRecursive(CONFIG.TRASH_DIR);
 
     // System info
@@ -1657,8 +1782,8 @@ app.get('/api/admin/stats', authenticateToken, requireAdmin, (req, res) => {
 
     res.json({
         files: {
-            total: totalFiles.files,
-            folders: totalFiles.folders,
+            total: totalFilesCount.files,
+            folders: totalFilesCount.folders,
             totalSize,
             trashSize
         },
@@ -1933,31 +2058,32 @@ app.get('/api/admin/storage-locations', authenticateToken, requireAdmin, (req, r
 
 // Add new storage location
 app.post('/api/admin/storage-locations', authenticateToken, requireAdmin, (req, res) => {
-    const { name, path: locationPath } = req.body;
-    
+    const { name, path: locationPath, limit } = req.body;
+
     if (!name || !locationPath) {
         return res.status(400).json({ error: 'Name and path are required' });
     }
-    
+
     // Validate path exists or can be created
     const resolvedPath = path.resolve(locationPath);
-    
+
     try {
         if (!fs.existsSync(resolvedPath)) {
             fs.mkdirSync(resolvedPath, { recursive: true });
         }
-        
+
         // Check if path is already added
         if (storageLocations.some(loc => loc.path === resolvedPath)) {
             return res.status(400).json({ error: 'This path is already added' });
         }
-        
+
         const newLocation = {
             id: uuidv4(),
             name,
             path: resolvedPath,
             enabled: true,
             isDefault: false,
+            limit: limit ? Number(limit) : 0,
             addedAt: new Date().toISOString()
         };
         
@@ -1971,11 +2097,11 @@ app.post('/api/admin/storage-locations', authenticateToken, requireAdmin, (req, 
     }
 });
 
-// Update storage location (enable/disable, set default)
+// Update storage location (enable/disable, set default, limit)
 app.put('/api/admin/storage-locations/:id', authenticateToken, requireAdmin, (req, res) => {
     const { id } = req.params;
-    const { enabled, isDefault, name } = req.body;
-    
+    const { enabled, isDefault, name, limit } = req.body;
+
     const location = storageLocations.find(loc => loc.id === id);
     if (!location) {
         return res.status(404).json({ error: 'Storage location not found' });
@@ -2000,6 +2126,10 @@ app.put('/api/admin/storage-locations/:id', authenticateToken, requireAdmin, (re
     
     if (name) {
         location.name = name;
+    }
+
+    if (typeof limit !== 'undefined') {
+        location.limit = Number(limit);
     }
     
     saveData(DATA_FILES.storageLocations, storageLocations);
@@ -2932,8 +3062,16 @@ app.put('/files/:filename', authenticateToken, (req, res) => {
 });
 
 app.get('/storage', (req, res) => {
-    const used = getDirectorySizeRecursive(CONFIG.UPLOAD_DIR);
-    res.json({ used, total: CONFIG.TOTAL_QUOTA, free: CONFIG.TOTAL_QUOTA - used });
+    const enabledLocations = getEnabledStorageLocations();
+    let totalUsed = 0;
+    let totalLimit = 0;
+    for (const loc of enabledLocations) {
+        totalUsed += fs.existsSync(loc.path) ? getDirectorySizeRecursive(loc.path) : 0;
+        totalLimit += loc.limit || 0;
+    }
+    // Fallback to CONFIG.TOTAL_QUOTA if no limits are set
+    if (totalLimit === 0) totalLimit = CONFIG.TOTAL_QUOTA;
+    res.json({ used: totalUsed, total: totalLimit, free: Math.max(0, totalLimit - totalUsed) });
 });
 
 app.post('/folders', authenticateToken, (req, res) => {
@@ -2975,8 +3113,12 @@ app.delete('/folders/*', authenticateToken, (req, res) => {
 
 app.post('/move', authenticateToken, (req, res) => {
     const { source, destination, name } = req.body;
-    const sourcePath = safeResolvePath(source, req.baseDir);
+    let sourcePath = safeResolvePath(source, req.baseDir);
     const destDir = safeResolvePath(destination || '', req.baseDir);
+    if (!sourcePath || !fs.existsSync(sourcePath)) {
+        const found = findFileAcrossStorages(source);
+        if (found) sourcePath = found.fullPath;
+    }
     if (!sourcePath || !destDir) return res.status(400).json({ error: 'Invalid path' });
     if (!fs.existsSync(sourcePath)) return res.status(404).json({ error: 'Source not found' });
     const itemName = name || path.basename(sourcePath);
