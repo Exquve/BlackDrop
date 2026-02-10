@@ -1627,44 +1627,49 @@
             const container = document.getElementById('storageLocationsList');
             try {
                 const res = await fetch('/api/admin/storage-locations', { headers: getAuthHeaders() });
-                if (res.ok) {
-                    const locations = await res.json();
-                    
-                    if (locations.length === 0) {
-                        container.innerHTML = '<div class="empty-state">Henüz depolama konumu eklenmemiş</div>';
-                        return;
-                    }
-                    
-                    container.innerHTML = locations.map(loc => `
-                        <div class="storage-location-item ${loc.isDefault ? 'default' : ''} ${!loc.enabled ? 'disabled' : ''}">
-                            <div class="storage-location-info">
-                                <div class="storage-location-header">
-                                    <span class="storage-location-name">
-                                        ${loc.isDefault ? '⭐ ' : ''}${loc.name}
-                                        ${loc.isDefault ? '<span class="badge badge-primary">Varsayılan</span>' : ''}
-                                        ${!loc.enabled ? '<span class="badge badge-secondary">Devre Dışı</span>' : ''}
-                                    </span>
-                                </div>
-                                <div class="storage-location-path">${loc.path}</div>
-                                <div class="storage-location-stats">
-                                    <span>BlackDrop: ${formatSize(loc.diskInfo?.usedByBlackDrop || 0)}</span>
-                                    ${loc.diskInfo?.total ? `<span>Disk: ${formatSize(loc.diskInfo.used || 0)} / ${formatSize(loc.diskInfo.total || 0)}</span>` : ''}
-                                </div>
+                if (!res.ok) {
+                    container.innerHTML = '<div class="error-state">Depolama konumları yüklenemedi (Yetki hatası olabilir)</div>';
+                    return;
+                }
+                const locations = await res.json();
+
+                if (!Array.isArray(locations) || locations.length === 0) {
+                    container.innerHTML = '<div class="empty-state">Henüz depolama konumu eklenmemiş</div>';
+                    return;
+                }
+
+                container.innerHTML = locations.map(loc => {
+                    const safeName = (loc.name || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    const safeId = loc.id || '';
+                    return `
+                    <div class="storage-location-item ${loc.isDefault ? 'default' : ''} ${!loc.enabled ? 'disabled' : ''}">
+                        <div class="storage-location-info">
+                            <div class="storage-location-header">
+                                <span class="storage-location-name">
+                                    ${loc.isDefault ? '⭐ ' : ''}${loc.name || 'Adsız'}
+                                    ${loc.isDefault ? '<span class="badge badge-primary">Varsayılan</span>' : ''}
+                                    ${!loc.enabled ? '<span class="badge badge-secondary">Devre Dışı</span>' : ''}
+                                </span>
                             </div>
-                            <div class="storage-location-actions">
-                                ${!loc.isDefault ? `
-                                    <button class="btn btn-sm btn-secondary" onclick="setDefaultStorage('${loc.id}')" title="Varsayılan Yap">⭐</button>
-                                    <button class="btn btn-sm ${loc.enabled ? 'btn-warning' : 'btn-success'}" onclick="toggleStorageLocation('${loc.id}', ${!loc.enabled})" title="${loc.enabled ? 'Devre Dışı Bırak' : 'Etkinleştir'}">
-                                        ${loc.enabled ? '⏸️' : '▶️'}
-                                    </button>
-                                    <button class="btn btn-sm btn-danger" onclick="deleteStorageLocation('${loc.id}', '${loc.name}')" title="Sil">🗑️</button>
-                                ` : `
-                                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Ana konum silinemez</span>
-                                `}
+                            <div class="storage-location-path">${loc.path || '-'}</div>
+                            <div class="storage-location-stats">
+                                <span>BlackDrop: ${formatSize(loc.diskInfo?.usedByBlackDrop || 0)}</span>
+                                ${loc.diskInfo?.total ? `<span>Disk: ${formatSize(loc.diskInfo.used || 0)} / ${formatSize(loc.diskInfo.total || 0)}</span>` : ''}
                             </div>
                         </div>
-                    `).join('');
-                }
+                        <div class="storage-location-actions">
+                            ${!loc.isDefault ? `
+                                <button class="btn btn-sm btn-secondary" onclick="setDefaultStorage('${safeId}')" title="Varsayılan Yap">⭐</button>
+                                <button class="btn btn-sm ${loc.enabled ? 'btn-warning' : 'btn-success'}" onclick="toggleStorageLocation('${safeId}', ${!loc.enabled})" title="${loc.enabled ? 'Devre Dışı Bırak' : 'Etkinleştir'}">
+                                    ${loc.enabled ? '⏸️' : '▶️'}
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteStorageLocation('${safeId}', '${safeName}')" title="Sil">🗑️</button>
+                            ` : `
+                                <span style="color: var(--text-secondary); font-size: 0.85rem;">Ana konum silinemez</span>
+                            `}
+                        </div>
+                    </div>`;
+                }).join('');
             } catch (e) {
                 console.error('Storage locations load error:', e);
                 container.innerHTML = '<div class="error-state">Depolama konumları yüklenemedi</div>';

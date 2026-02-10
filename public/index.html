@@ -565,13 +565,19 @@
                 </svg>
             </div>
             <div class="upload-status-info">
-                <div class="upload-status-title">Uploading...</div>
+                <div class="upload-status-title" id="uploadStatusTitle">Uploading...</div>
                 <div class="upload-status-file" id="uploadFileName">file.txt</div>
             </div>
+            <button class="upload-minimize-btn" id="uploadMinimizeBtn" title="Kapat" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:4px;">
+                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
         </div>
         <div class="progress-container">
             <div class="progress" id="uploadProgress"></div>
         </div>
+        <div class="upload-queue-list" id="uploadQueueList" style="max-height:150px;overflow-y:auto;margin-top:0.5rem;display:none;"></div>
     </div>
 
     <!-- Bulk Actions Bar -->

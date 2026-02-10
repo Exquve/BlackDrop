@@ -102,6 +102,13 @@ let settings = loadData(DATA_FILES.settings, { authEnabled: false, notifications
 let storageLocations = loadData(DATA_FILES.storageLocations, [
     { id: 'default', name: 'Ana Depolama', path: CONFIG.UPLOAD_DIR, enabled: true, isDefault: true }
 ]);
+
+// Restore CONFIG.UPLOAD_DIR from saved default storage location on startup
+const savedDefault = storageLocations.find(loc => loc.isDefault);
+if (savedDefault && savedDefault.path && fs.existsSync(savedDefault.path)) {
+    CONFIG.UPLOAD_DIR = savedDefault.path;
+}
+
 let comments = loadData(DATA_FILES.comments, {});
 let fileVersions = loadData(DATA_FILES.fileVersions, {});
 let searchHistory = loadData(DATA_FILES.searchHistory, []);

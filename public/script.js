@@ -25,9 +25,6 @@ const dropOverlay = document.getElementById('dropOverlay');
 const contextMenu = document.getElementById('contextMenu');
 const gridContextMenu = document.getElementById('gridContextMenu');
 const toastContainer = document.getElementById('toastContainer');
-const uploadStatus = document.getElementById('uploadStatus');
-const uploadProgress = document.getElementById('uploadProgress');
-const uploadFileName = document.getElementById('uploadFileName');
 const sectionTitle = document.getElementById('sectionTitle');
 const fileCount = document.getElementById('fileCount');
 const sortMenu = document.getElementById('sortMenu');
@@ -754,7 +751,16 @@ viewToggleBtn?.addEventListener('click', () => {
 // ============================================================================
 // UPLOAD
 // ============================================================================
-fileInput?.addEventListener('change', (e) => handleFiles(e.target.files));
+fileInput?.addEventListener('change', (e) => {
+    handleFiles(e.target.files);
+    e.target.value = '';  // Reset so same files can be selected again
+});
+
+// Close/hide upload status bar
+document.getElementById('uploadMinimizeBtn')?.addEventListener('click', () => {
+    const uploadStatus = document.getElementById('uploadStatus');
+    if (uploadStatus) uploadStatus.style.display = 'none';
+});
 
 let dragCounter = 0;
 
@@ -790,49 +796,174 @@ document.addEventListener('dragover', (e) => e.preventDefault());
 
 function handleFiles(files) {
     if (!files?.length) return;
-    [...files].forEach(uploadFile);
+    [...files].forEach(file => uploadQueue.add(file));
 }
 
-function uploadFile(file) {
-    const formData = new FormData();
-    formData.append('file', file);
+// ============================================================================
+// UPLOAD QUEUE SYSTEM
+// ============================================================================
+const uploadQueue = {
+    queue: [],          // Files waiting to be uploaded
+    active: null,       // Currently uploading file info
+    completed: 0,       // Count of completed uploads in current batch
+    failed: 0,          // Count of failed uploads
+    totalInBatch: 0,    // Total files in current batch
+    xhr: null,          // Current XMLHttpRequest
 
-    if (uploadStatus) uploadStatus.style.display = 'block';
-    if (uploadFileName) uploadFileName.textContent = file.name;
-    if (uploadProgress) uploadProgress.style.width = '0%';
-
-    const xhr = new XMLHttpRequest();
-    const parentPathQuery = currentPath === '/' ? '' : `?parentPath=${encodeURIComponent(currentPath)}`;
-    xhr.open('POST', `/upload${parentPathQuery}`, true);
-
-    if (authToken) {
-        xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
-    }
-
-    xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable && uploadProgress) {
-            const percent = (e.loaded / e.total) * 100;
-            uploadProgress.style.width = percent + '%';
+    add(file) {
+        this.queue.push(file);
+        this.totalInBatch++;
+        this.updateUI();
+        if (!this.active) {
+            this.processNext();
         }
-    };
+    },
 
-    xhr.onload = () => {
-        if (xhr.status !== 200) {
-            showToast('Yükleme başarısız', 'error');
+    processNext() {
+        if (this.queue.length === 0) {
+            // All done
+            this.finish();
+            return;
         }
+
+        const file = this.queue.shift();
+        this.active = { name: file.name, size: file.size, progress: 0 };
+        this.updateUI();
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const xhr = new XMLHttpRequest();
+        this.xhr = xhr;
+        const parentPathQuery = currentPath === '/' ? '' : `?parentPath=${encodeURIComponent(currentPath)}`;
+        xhr.open('POST', `/upload${parentPathQuery}`, true);
+
+        if (authToken) {
+            xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+        }
+
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable && this.active) {
+                this.active.progress = (e.loaded / e.total) * 100;
+                this.updateUI();
+            }
+        };
+
+        xhr.onload = () => {
+            if (xhr.status === 200) {
+                this.completed++;
+            } else {
+                this.failed++;
+                showToast(`Yukleme basarisiz: ${file.name}`, 'error');
+            }
+            this.active = null;
+            this.processNext();
+        };
+
+        xhr.onerror = () => {
+            this.failed++;
+            showToast(`Yukleme hatasi: ${file.name}`, 'error');
+            this.active = null;
+            this.processNext();
+        };
+
+        xhr.send(formData);
+    },
+
+    finish() {
+        const statusTitle = document.getElementById('uploadStatusTitle');
+        const uploadFileName = document.getElementById('uploadFileName');
+        const uploadProgress = document.getElementById('uploadProgress');
+
+        if (this.failed > 0) {
+            if (statusTitle) statusTitle.textContent = `Tamamlandi (${this.failed} basarisiz)`;
+        } else {
+            if (statusTitle) statusTitle.textContent = 'Tamamlandi!';
+        }
+        if (uploadFileName) uploadFileName.textContent = `${this.completed} dosya yuklendi`;
+        if (uploadProgress) uploadProgress.style.width = '100%';
+
+        const queueList = document.getElementById('uploadQueueList');
+        if (queueList) queueList.style.display = 'none';
+
         setTimeout(() => {
+            const uploadStatus = document.getElementById('uploadStatus');
             if (uploadStatus) uploadStatus.style.display = 'none';
             if (uploadProgress) uploadProgress.style.width = '0%';
-        }, 1000);
-    };
+            this.reset();
+        }, 2000);
+    },
 
-    xhr.onerror = () => {
-        showToast('Yükleme başarısız', 'error');
-        if (uploadStatus) uploadStatus.style.display = 'none';
-    };
+    reset() {
+        this.queue = [];
+        this.active = null;
+        this.completed = 0;
+        this.failed = 0;
+        this.totalInBatch = 0;
+        this.xhr = null;
+    },
 
-    xhr.send(formData);
-}
+    updateUI() {
+        const uploadStatus = document.getElementById('uploadStatus');
+        const statusTitle = document.getElementById('uploadStatusTitle');
+        const uploadFileName = document.getElementById('uploadFileName');
+        const uploadProgress = document.getElementById('uploadProgress');
+        const queueList = document.getElementById('uploadQueueList');
+
+        if (uploadStatus) uploadStatus.style.display = 'block';
+
+        const current = this.completed + this.failed + 1;
+        const total = this.totalInBatch;
+
+        if (statusTitle) {
+            if (total > 1) {
+                statusTitle.textContent = `Yukleniyor... (${current}/${total})`;
+            } else {
+                statusTitle.textContent = 'Yukleniyor...';
+            }
+        }
+
+        if (this.active) {
+            if (uploadFileName) uploadFileName.textContent = this.active.name;
+            if (uploadProgress) uploadProgress.style.width = this.active.progress + '%';
+        }
+
+        // Show queue list if more than 1 file
+        if (queueList && total > 1) {
+            queueList.style.display = 'block';
+            const items = [];
+            // Completed
+            for (let i = 0; i < this.completed; i++) {
+                items.push(`<div style="display:flex;align-items:center;gap:0.5rem;padding:0.2rem 0;font-size:0.8rem;color:var(--text-secondary);">
+                    <span style="color:#22c55e;">✓</span> <span>Yuklendi</span>
+                </div>`);
+            }
+            // Failed
+            for (let i = 0; i < this.failed; i++) {
+                items.push(`<div style="display:flex;align-items:center;gap:0.5rem;padding:0.2rem 0;font-size:0.8rem;color:#ef4444;">
+                    <span>✗</span> <span>Basarisiz</span>
+                </div>`);
+            }
+            // Current
+            if (this.active) {
+                items.push(`<div style="display:flex;align-items:center;gap:0.5rem;padding:0.2rem 0;font-size:0.8rem;color:var(--text-primary);font-weight:500;">
+                    <span style="color:var(--accent);">⬆</span> <span>${this.active.name}</span>
+                    <span style="margin-left:auto;color:var(--text-secondary);">${Math.round(this.active.progress)}%</span>
+                </div>`);
+            }
+            // Queued
+            this.queue.forEach(f => {
+                items.push(`<div style="display:flex;align-items:center;gap:0.5rem;padding:0.2rem 0;font-size:0.8rem;color:var(--text-tertiary);">
+                    <span>⏳</span> <span>${f.name}</span>
+                    <span style="margin-left:auto;">${formatSize(f.size)}</span>
+                </div>`);
+            });
+            queueList.innerHTML = items.join('');
+        } else if (queueList) {
+            queueList.style.display = 'none';
+        }
+    }
+};
 
 // ============================================================================
 // CONTEXT MENU
