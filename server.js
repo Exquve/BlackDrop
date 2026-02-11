@@ -167,6 +167,30 @@ const sslOptions = {
 const server = https.createServer(sslOptions, app);
 const io = new Server(server);
 
+// Socket.io IP filtering
+io.use((socket, next) => {
+    const ip = (socket.handshake.headers['x-forwarded-for']?.split(',')[0] ||
+        socket.handshake.address || 'unknown').replace('::ffff:', '');
+
+    console.log(`[DEBUG] Socket connection attempt. IP: ${ip}`);
+    console.log(`[DEBUG] Config Mode: ${ipConfig.mode}`);
+    console.log(`[DEBUG] Whitelist: ${JSON.stringify(ipConfig.whitelist)}`);
+
+    if (ipConfig.mode === 'whitelist' && ipConfig.whitelist.length > 0) {
+        if (!ipConfig.whitelist.includes(ip)) {
+            console.log(`[BLOCKED] Socket connection from non-whitelisted IP: ${ip}`);
+            return next(new Error('Access denied'));
+        }
+    }
+
+    if (ipConfig.mode === 'blacklist' && ipConfig.blacklist.includes(ip)) {
+        console.log(`[BLOCKED] Socket connection from blacklisted IP: ${ip}`);
+        return next(new Error('Access denied'));
+    }
+
+    next();
+});
+
 // ============================================================================
 // MIDDLEWARE
 // ============================================================================
@@ -184,6 +208,9 @@ app.use(compression());
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// IP filtering (must be before rate limiting and static files)
+app.use(ipFilter);
 
 // Rate limiting
 const limiter = rateLimit({
@@ -331,10 +358,10 @@ function logActivity(action, details, ip, user = 'anonymous') {
         ip,
         user
     };
-    
+
     // Log to terminal
     console.log(`[${new Date().toLocaleTimeString()}] [${action.toUpperCase()}] User: ${user} | IP: ${ip} | ${details}`);
-    
+
     activityLog.unshift(entry);
     if (activityLog.length > 1000) activityLog = activityLog.slice(0, 1000);
     io.emit('activity:new', entry);
@@ -536,7 +563,7 @@ function ipFilter(req, res, next) {
     next();
 }
 
-app.use(ipFilter);
+
 
 // ============================================================================
 // MULTER CONFIGURATION
@@ -732,14 +759,14 @@ app.post('/api/upload', authenticateToken, upload.single('file'), async (req, re
 app.post('/api/upload/init', authenticateToken, (req, res) => {
     const { filename, totalSize, totalChunks } = req.body;
     const uploadId = uuidv4();
-    
+
     res.json({ uploadId, message: 'Upload initialized' });
 });
 
 // Chunked upload - chunk
 app.post('/api/upload/chunk', authenticateToken, chunkUpload.single('chunk'), (req, res) => {
     const { uploadId, chunkIndex, totalChunks, filename, parentPath } = req.body;
-    
+
     res.json({ message: 'Chunk uploaded', chunkIndex });
 });
 
@@ -763,23 +790,23 @@ app.post('/api/upload/complete', authenticateToken, async (req, res) => {
     }
 
     const targetDir = path.join(destDir, parentPath.replace(/^\/+/, '').replace(/\.\./g, ''));
-    
+
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
-    
+
     const targetPath = path.join(targetDir, filename);
     const writeStream = fs.createWriteStream(targetPath);
-    
+
     for (let i = 0; i < totalChunks; i++) {
         const chunkPath = path.join(chunkDir, `chunk-${i}`);
         const chunkData = fs.readFileSync(chunkPath);
         writeStream.write(chunkData);
     }
-    
+
     writeStream.end();
-    
+
     // Cleanup chunks
     fs.rmSync(chunkDir, { recursive: true, force: true });
-    
+
     const stats = fs.statSync(targetPath);
     const fileData = {
         name: filename,
@@ -788,10 +815,10 @@ app.post('/api/upload/complete', authenticateToken, async (req, res) => {
         type: getFileType(filename),
         isFolder: false
     };
-    
+
     io.emit('file:uploaded', { file: fileData, parentPath: parentPath || '/' });
     logActivity('upload', `Uploaded (chunked): ${filename} (${formatBytes(stats.size)})`, req.clientIp, req.user?.username);
-    
+
     res.json({ message: 'Upload complete', filename });
 });
 
@@ -919,14 +946,14 @@ app.delete('/api/files/:filename(*)', authenticateToken, (req, res) => {
         // Move to trash instead of permanent delete
         const trashId = uuidv4();
         const trashPath = path.join(CONFIG.TRASH_DIR, trashId);
-        
+
         // Save metadata
         const trashMetaFile = path.join(CONFIG.TRASH_DIR, '.meta.json');
         let trashMeta = {};
         if (fs.existsSync(trashMetaFile)) {
             trashMeta = JSON.parse(fs.readFileSync(trashMetaFile, 'utf8'));
         }
-        
+
         const stats = fs.statSync(filePath);
         trashMeta[trashId] = {
             originalName: filename,
@@ -935,7 +962,7 @@ app.delete('/api/files/:filename(*)', authenticateToken, (req, res) => {
             size: stats.isDirectory() ? getDirectorySizeRecursive(filePath) : stats.size,
             isFolder: stats.isDirectory()
         };
-        
+
         fs.renameSync(filePath, trashPath);
         fs.writeFileSync(trashMetaFile, JSON.stringify(trashMeta, null, 2));
 
@@ -1114,10 +1141,10 @@ app.delete('/api/folders/*', authenticateToken, (req, res) => {
         // Move to trash
         const trashId = uuidv4();
         const trashPath = path.join(CONFIG.TRASH_DIR, trashId);
-        
+
         const trashMetaFile = path.join(CONFIG.TRASH_DIR, '.meta.json');
         let trashMeta = fs.existsSync(trashMetaFile) ? JSON.parse(fs.readFileSync(trashMetaFile, 'utf8')) : {};
-        
+
         trashMeta[trashId] = {
             originalName: path.basename(folderRelPath),
             originalPath: folderRelPath,
@@ -1125,7 +1152,7 @@ app.delete('/api/folders/*', authenticateToken, (req, res) => {
             size: getDirectorySizeRecursive(folderPath),
             isFolder: true
         };
-        
+
         fs.renameSync(folderPath, trashPath);
         fs.writeFileSync(trashMetaFile, JSON.stringify(trashMeta, null, 2));
 
@@ -1281,7 +1308,7 @@ app.delete('/api/trash', authenticateToken, (req, res) => {
             }
         });
         fs.writeFileSync(path.join(CONFIG.TRASH_DIR, '.meta.json'), '{}');
-        
+
         logActivity('empty_trash', 'Emptied trash', req.clientIp, req.user?.username);
         res.json({ message: 'Trash emptied' });
     } catch (e) {
@@ -1368,7 +1395,7 @@ app.delete('/api/tags', authenticateToken, (req, res) => {
 // Create share link
 app.post('/api/share', authenticateToken, (req, res) => {
     const { path: filePath, password, expiresIn, maxDownloads, uploadOnly } = req.body;
-    
+
     const fullPath = safeResolvePath(filePath);
     if (!fullPath || !fs.existsSync(fullPath)) {
         return res.status(404).json({ error: 'File not found' });
@@ -1402,7 +1429,7 @@ app.get('/api/share/:id/info', (req, res) => {
     const share = shares[id];
 
     if (!share) return res.status(404).json({ error: 'Share not found' });
-    
+
     if (share.expiresAt && new Date(share.expiresAt) < new Date()) {
         return res.status(410).json({ error: 'Share link has expired' });
     }
@@ -1415,7 +1442,7 @@ app.get('/api/share/:id/info', (req, res) => {
     if (!fullPath || !fs.existsSync(fullPath)) {
         return res.status(404).json({ error: 'File not found' });
     }
-    
+
     const stats = fs.statSync(fullPath);
 
     res.json({
@@ -1462,7 +1489,7 @@ app.get('/api/share/:id', (req, res) => {
     const share = shares[id];
 
     if (!share) return res.status(404).json({ error: 'Share not found' });
-    
+
     if (share.expiresAt && new Date(share.expiresAt) < new Date()) {
         return res.status(410).json({ error: 'Share link has expired' });
     }
@@ -1475,7 +1502,7 @@ app.get('/api/share/:id', (req, res) => {
     if (!fullPath || !fs.existsSync(fullPath)) {
         return res.status(404).json({ error: 'File not found' });
     }
-    
+
     const stats = fs.statSync(fullPath);
 
     res.json({
@@ -1495,7 +1522,7 @@ app.get('/api/share/:id/download', (req, res) => {
     const share = shares[id];
 
     if (!share) return res.status(404).json({ error: 'Share not found' });
-    
+
     if (share.expiresAt && new Date(share.expiresAt) < new Date()) {
         return res.status(410).json({ error: 'Share link has expired' });
     }
@@ -1531,7 +1558,7 @@ app.post('/api/share/:id/download', (req, res) => {
     const share = shares[id];
 
     if (!share) return res.status(404).json({ error: 'Share not found' });
-    
+
     if (share.expiresAt && new Date(share.expiresAt) < new Date()) {
         return res.status(410).json({ error: 'Share link has expired' });
     }
@@ -1764,7 +1791,7 @@ app.get('/api/admin/stats', authenticateToken, requireAdmin, (req, res) => {
     const cpus = os.cpus();
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
-    
+
     // Get local IP
     const networkInterfaces = os.networkInterfaces();
     let localIp = 'localhost';
@@ -1776,7 +1803,7 @@ app.get('/api/admin/stats', authenticateToken, requireAdmin, (req, res) => {
             }
         }
     }
-    
+
     // Process memory (more accurate for app usage)
     const processMemory = process.memoryUsage();
 
@@ -1847,13 +1874,66 @@ app.put('/api/admin/ip-config', authenticateToken, requireAdmin, (req, res) => {
 
 // Settings
 app.get('/api/admin/settings', authenticateToken, requireAdmin, (req, res) => {
-    res.json(settings);
+    const combined = { ...settings };
+    combined.whitelistEnabled = ipConfig.mode === 'whitelist';
+    // If there's a blacklist toggle in UI, handled similarly, but based on admin.html we focus on whitelist for now or implicit mode switching.
+    // Assuming admin.html expects ipWhitelist/ipBlacklist arrays in settings
+    combined.ipWhitelist = ipConfig.whitelist;
+    combined.ipBlacklist = ipConfig.blacklist;
+    res.json(combined);
 });
 
 app.put('/api/admin/settings', authenticateToken, requireAdmin, (req, res) => {
-    Object.assign(settings, req.body);
+    const { whitelistEnabled, ...otherSettings } = req.body;
+
+    // Handle IP config mode changes
+    if (whitelistEnabled !== undefined) {
+        ipConfig.mode = whitelistEnabled ? 'whitelist' : 'none';
+        saveData(DATA_FILES.ipConfig, ipConfig);
+    }
+
+    // Merge other settings
+    Object.assign(settings, otherSettings);
     saveData(DATA_FILES.settings, settings);
-    res.json({ message: 'Settings updated', settings });
+
+    res.json({ message: 'Settings updated', settings, ipConfigMode: ipConfig.mode });
+});
+
+// IP Management Routes
+app.post('/api/admin/ip/whitelist', authenticateToken, requireAdmin, (req, res) => {
+    const { ip } = req.body;
+    if (ip && !ipConfig.whitelist.includes(ip)) {
+        ipConfig.whitelist.push(ip);
+        saveData(DATA_FILES.ipConfig, ipConfig);
+    }
+    res.json({ message: 'IP added to whitelist' });
+});
+
+app.delete('/api/admin/ip/whitelist', authenticateToken, requireAdmin, (req, res) => {
+    const { ip } = req.body;
+    if (ip) {
+        ipConfig.whitelist = ipConfig.whitelist.filter(i => i !== ip);
+        saveData(DATA_FILES.ipConfig, ipConfig);
+    }
+    res.json({ message: 'IP removed from whitelist' });
+});
+
+app.post('/api/admin/ip/blacklist', authenticateToken, requireAdmin, (req, res) => {
+    const { ip } = req.body;
+    if (ip && !ipConfig.blacklist.includes(ip)) {
+        ipConfig.blacklist.push(ip);
+        saveData(DATA_FILES.ipConfig, ipConfig);
+    }
+    res.json({ message: 'IP added to blacklist' });
+});
+
+app.delete('/api/admin/ip/blacklist', authenticateToken, requireAdmin, (req, res) => {
+    const { ip } = req.body;
+    if (ip) {
+        ipConfig.blacklist = ipConfig.blacklist.filter(i => i !== ip);
+        saveData(DATA_FILES.ipConfig, ipConfig);
+    }
+    res.json({ message: 'IP removed from blacklist' });
 });
 
 // Users management
@@ -1931,7 +2011,7 @@ app.delete('/api/admin/activity', authenticateToken, requireAdmin, (req, res) =>
 // Change admin password
 app.post('/api/admin/change-password', authenticateToken, requireAdmin, (req, res) => {
     const { password } = req.body;
-    
+
     if (!password || password.length < 4) {
         return res.status(400).json({ error: 'Password must be at least 4 characters' });
     }
@@ -1939,7 +2019,7 @@ app.post('/api/admin/change-password', authenticateToken, requireAdmin, (req, re
     users.admin.password = bcrypt.hashSync(password, 10);
     saveData(DATA_FILES.users, users);
     logActivity('settings', 'Admin password changed', req.clientIp, req.user?.username);
-    
+
     res.json({ message: 'Password changed successfully' });
 });
 
@@ -1947,7 +2027,7 @@ app.post('/api/admin/change-password', authenticateToken, requireAdmin, (req, re
 app.post('/api/admin/cleanup-shares', authenticateToken, requireAdmin, (req, res) => {
     const now = new Date();
     let cleaned = 0;
-    
+
     Object.keys(shares).forEach(id => {
         const share = shares[id];
         if (share.expiresAt && new Date(share.expiresAt) < now) {
@@ -1959,10 +2039,10 @@ app.post('/api/admin/cleanup-shares', authenticateToken, requireAdmin, (req, res
             cleaned++;
         }
     });
-    
+
     saveData(DATA_FILES.shares, shares);
     logActivity('cleanup', `Cleaned ${cleaned} expired shares`, req.clientIp, req.user?.username);
-    
+
     res.json({ cleaned });
 });
 
@@ -1979,7 +2059,7 @@ app.get('/api/admin/shares', authenticateToken, requireAdmin, (req, res) => {
 app.post('/api/admin/ip/whitelist', authenticateToken, requireAdmin, (req, res) => {
     const { ip } = req.body;
     if (!ip) return res.status(400).json({ error: 'IP required' });
-    
+
     if (!settings.ipWhitelist) settings.ipWhitelist = [];
     if (!settings.ipWhitelist.includes(ip)) {
         settings.ipWhitelist.push(ip);
@@ -1992,7 +2072,7 @@ app.post('/api/admin/ip/whitelist', authenticateToken, requireAdmin, (req, res) 
 app.delete('/api/admin/ip/whitelist', authenticateToken, requireAdmin, (req, res) => {
     const { ip } = req.body;
     if (!ip) return res.status(400).json({ error: 'IP required' });
-    
+
     if (settings.ipWhitelist) {
         settings.ipWhitelist = settings.ipWhitelist.filter(i => i !== ip);
         saveData(DATA_FILES.settings, settings);
@@ -2005,7 +2085,7 @@ app.delete('/api/admin/ip/whitelist', authenticateToken, requireAdmin, (req, res
 app.post('/api/admin/ip/blacklist', authenticateToken, requireAdmin, (req, res) => {
     const { ip } = req.body;
     if (!ip) return res.status(400).json({ error: 'IP required' });
-    
+
     if (!settings.ipBlacklist) settings.ipBlacklist = [];
     if (!settings.ipBlacklist.includes(ip)) {
         settings.ipBlacklist.push(ip);
@@ -2018,7 +2098,7 @@ app.post('/api/admin/ip/blacklist', authenticateToken, requireAdmin, (req, res) 
 app.delete('/api/admin/ip/blacklist', authenticateToken, requireAdmin, (req, res) => {
     const { ip } = req.body;
     if (!ip) return res.status(400).json({ error: 'IP required' });
-    
+
     if (settings.ipBlacklist) {
         settings.ipBlacklist = settings.ipBlacklist.filter(i => i !== ip);
         saveData(DATA_FILES.settings, settings);
@@ -2086,11 +2166,11 @@ app.post('/api/admin/storage-locations', authenticateToken, requireAdmin, (req, 
             limit: limit ? Number(limit) : 0,
             addedAt: new Date().toISOString()
         };
-        
+
         storageLocations.push(newLocation);
         saveData(DATA_FILES.storageLocations, storageLocations);
         logActivity('storage', `Added storage location: ${name} (${resolvedPath})`, req.clientIp, req.user?.username);
-        
+
         res.json({ message: 'Storage location added', location: newLocation });
     } catch (e) {
         res.status(500).json({ error: 'Could not create/access path: ' + e.message });
@@ -2106,7 +2186,7 @@ app.put('/api/admin/storage-locations/:id', authenticateToken, requireAdmin, (re
     if (!location) {
         return res.status(404).json({ error: 'Storage location not found' });
     }
-    
+
     if (typeof enabled !== 'undefined') {
         // Cannot disable default location
         if (!enabled && location.isDefault) {
@@ -2114,7 +2194,7 @@ app.put('/api/admin/storage-locations/:id', authenticateToken, requireAdmin, (re
         }
         location.enabled = enabled;
     }
-    
+
     if (isDefault) {
         // Set this as default, unset others
         storageLocations.forEach(loc => loc.isDefault = false);
@@ -2123,7 +2203,7 @@ app.put('/api/admin/storage-locations/:id', authenticateToken, requireAdmin, (re
         // Update CONFIG.UPLOAD_DIR
         CONFIG.UPLOAD_DIR = location.path;
     }
-    
+
     if (name) {
         location.name = name;
     }
@@ -2131,30 +2211,30 @@ app.put('/api/admin/storage-locations/:id', authenticateToken, requireAdmin, (re
     if (typeof limit !== 'undefined') {
         location.limit = Number(limit);
     }
-    
+
     saveData(DATA_FILES.storageLocations, storageLocations);
     logActivity('storage', `Updated storage location: ${location.name}`, req.clientIp, req.user?.username);
-    
+
     res.json({ message: 'Storage location updated', location });
 });
 
 // Delete storage location
 app.delete('/api/admin/storage-locations/:id', authenticateToken, requireAdmin, (req, res) => {
     const { id } = req.params;
-    
+
     const location = storageLocations.find(loc => loc.id === id);
     if (!location) {
         return res.status(404).json({ error: 'Storage location not found' });
     }
-    
+
     if (location.isDefault) {
         return res.status(400).json({ error: 'Cannot delete the default storage location' });
     }
-    
+
     storageLocations = storageLocations.filter(loc => loc.id !== id);
     saveData(DATA_FILES.storageLocations, storageLocations);
     logActivity('storage', `Removed storage location: ${location.name}`, req.clientIp, req.user?.username);
-    
+
     res.json({ message: 'Storage location removed' });
 });
 
@@ -2162,7 +2242,7 @@ app.delete('/api/admin/storage-locations/:id', authenticateToken, requireAdmin, 
 app.get('/api/storage-location', (req, res) => {
     const activeLocations = storageLocations.filter(loc => loc.enabled);
     const defaultLocation = storageLocations.find(loc => loc.isDefault) || activeLocations[0];
-    res.json({ 
+    res.json({
         locations: activeLocations,
         default: defaultLocation
     });
