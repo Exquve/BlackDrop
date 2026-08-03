@@ -9,6 +9,19 @@ Self-hosted file sharing and management platform for local networks. Secure, rea
 
 ## Features
 
+### Local & Cloud Spaces
+- **Local** — Classic BlackDrop: LAN disk/NAS storage, share links, trash, versions, RBAC
+- **Cloud** — Multi-account storage gateway (inspired by 9Drive): Google Drive + S3-compatible backends in one dashboard
+
+### Cloud Gateway
+- Connect multiple **Google Drive** accounts (OAuth); files stream to a `blackdrop` Drive folder
+- **S3-compatible** storage (MinIO, Cloudflare R2, Wasabi, Backblaze B2, AWS S3)
+- Upload routing: most-available / round-robin / priority
+- Quota tracker across connected accounts
+- Virtual folders, preview, download, rename, delete, Drive sync
+- API keys + `POST /api/v1/uploads` for external uploads
+- Bottom-right upload progress panel
+
 ### File Management
 - **Drag & Drop Upload** with queue system (sequential uploads, per-file progress tracking)
 - **Folder Support** - Create folders, navigate nested directory structures

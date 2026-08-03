@@ -4,6 +4,7 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const http = require('http');
 const { Server } = require("socket.io");
 const os = require('os');
 const jwt = require('jsonwebtoken');
@@ -27,6 +28,7 @@ const app = express();
 // ============================================================================
 const CONFIG = {
     PORT: 3000,
+    HTTP_PORT: 3001,
     JWT_SECRET: process.env.JWT_SECRET || 'blackdrop-secret-key-change-in-production-' + uuidv4(),
     JWT_EXPIRES_IN: '7d',
     UPLOAD_DIR: path.join(__dirname, 'uploads'),
@@ -167,6 +169,24 @@ const sslOptions = {
 const server = https.createServer(sslOptions, app);
 const io = new Server(server);
 
+// Plain HTTP server: share downloads + direct downloads (for OS drag-out via DownloadURL).
+// Everything else is redirected to HTTPS so there is a single origin/session.
+const httpApp = express();
+httpApp.disable('x-powered-by');
+httpApp.use((req, res, next) => {
+    const allowHttp =
+        /^\/api\/share\/[^/]+\/download\/?$/.test(req.path) ||
+        /^\/api\/download\//.test(req.path);
+    if (allowHttp) {
+        return app(req, res, next);
+    }
+    // Redirect every other request to HTTPS
+    const hostHeader = req.headers.host || '';
+    const hostname = hostHeader.split(':')[0] || 'localhost';
+    return res.redirect(301, `https://${hostname}:${CONFIG.PORT}${req.originalUrl}`);
+});
+const httpServer = http.createServer(httpApp);
+
 // Socket.io IP filtering
 io.use((socket, next) => {
     const ip = (socket.handshake.headers['x-forwarded-for']?.split(',')[0] ||
@@ -198,7 +218,9 @@ io.use((socket, next) => {
 // Security headers
 app.use(helmet({
     contentSecurityPolicy: false,
-    crossOriginEmbedderPolicy: false
+    crossOriginEmbedderPolicy: false,
+    // Disable HSTS so browsers don't auto-upgrade plain HTTP share links to HTTPS
+    strictTransportSecurity: false
 }));
 
 // Compression
@@ -3034,7 +3056,37 @@ app.post('/upload', authenticateToken, upload.single('file'), (req, res) => {
     };
     io.emit('file:uploaded', { file: fileData, parentPath: parentPath || '/' });
     logActivity('upload', `Uploaded: ${req.file.filename}`, req.clientIp, req.user?.username);
-    res.json({ message: 'File uploaded successfully', filename: req.file.filename, parentPath });
+
+    // Auto-create a public share link with direct download URL (no password, no expiry)
+    let directUrl = null;
+    let directUrlHttp = null;
+    let directUrlHttps = null;
+    let shareId = null;
+    try {
+        const sharePath = parentPath ? `${parentPath}/${req.file.filename}` : req.file.filename;
+        shareId = uuidv4().substring(0, 8);
+        shares[shareId] = {
+            path: sharePath,
+            password: null,
+            expiresAt: null,
+            maxDownloads: null,
+            downloadCount: 0,
+            uploadOnly: false,
+            createdAt: new Date().toISOString(),
+            createdBy: req.user?.username || 'anonymous',
+            autoCreated: true
+        };
+        saveData(DATA_FILES.shares, shares);
+        const hostHeader = req.get('host') || '';
+        const hostname = hostHeader.split(':')[0] || 'localhost';
+        directUrlHttp = `http://${hostname}:${CONFIG.HTTP_PORT}/api/share/${shareId}/download`;
+        directUrlHttps = `https://${hostname}:${CONFIG.PORT}/api/share/${shareId}/download`;
+        directUrl = directUrlHttp; // backward compatible default
+    } catch (e) {
+        console.error('Failed to auto-create share link:', e);
+    }
+
+    res.json({ message: 'File uploaded successfully', filename: req.file.filename, parentPath, shareId, directUrl, directUrlHttp, directUrlHttps });
 });
 
 app.get('/files', authenticateToken, (req, res) => {
@@ -3217,6 +3269,20 @@ app.post('/move', authenticateToken, (req, res) => {
 });
 
 // ============================================================================
+// CLOUD STORAGE (Google Drive + S3 gateway)
+// ============================================================================
+
+const { createCloudRouter } = require('./cloud');
+const cloud = createCloudRouter({
+    dataDir: CONFIG.DATA_DIR,
+    authenticateToken,
+    maxUploadBytes: CONFIG.MAX_FILE_SIZE,
+    getFrontendOrigin: () => '/',
+});
+app.use('/api/cloud', cloud.router);
+app.use('/api/v1', cloud.publicRouter);
+
+// ============================================================================
 // SHARE PAGE ROUTE
 // ============================================================================
 
@@ -3262,12 +3328,17 @@ server.listen(CONFIG.PORT, '0.0.0.0', () => {
     console.log('║                                                               ║');
     console.log(`║   🌐 Local:    https://localhost:${CONFIG.PORT}                      ║`);
     console.log(`║   📡 Network:  https://${ip}:${CONFIG.PORT}`.padEnd(64) + '║');
+    console.log(`║   🔓 HTTP:     http://${ip}:${CONFIG.HTTP_PORT}`.padEnd(64) + '║');
     console.log('║                                                               ║');
     console.log('║   🔐 Auth:     ' + (settings.authEnabled ? 'Enabled (admin/admin)' : 'Disabled').padEnd(44) + '║');
     console.log('║   💡 Tip:      Use Ctrl+C to stop the server                  ║');
     console.log('║                                                               ║');
     console.log('╚═══════════════════════════════════════════════════════════════╝');
     console.log('');
+});
+
+httpServer.listen(CONFIG.HTTP_PORT, '0.0.0.0', () => {
+    console.log(`[HTTP] Plain HTTP server listening on port ${CONFIG.HTTP_PORT} (for direct download links)`);
 });
 
 module.exports = server;

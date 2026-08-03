@@ -14,6 +14,7 @@
 
     <title>BlackDrop</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="cloud.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -42,6 +43,18 @@
             BlackDrop
         </div>
 
+        <!-- Local / Cloud mode switch -->
+        <div class="space-mode-switch" id="spaceModeSwitch" role="tablist">
+            <button type="button" class="space-mode-btn active" data-mode="local" onclick="switchSpaceMode('local')" role="tab" aria-selected="true">
+                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/></svg>
+                Local
+            </button>
+            <button type="button" class="space-mode-btn" data-mode="cloud" onclick="switchSpaceMode('cloud')" role="tab" aria-selected="false">
+                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg>
+                Cloud
+            </button>
+        </div>
+
         <!-- Storage Indicator -->
         <div class="storage-indicator">
             <div class="storage-header">
@@ -53,7 +66,7 @@
             </div>
         </div>
 
-        <ul class="nav-links">
+        <ul class="nav-links" id="localNavLinks">
             <li class="nav-item active" data-filter="all" onclick="filterFiles('all')">
                 <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -105,6 +118,34 @@
                         d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
                 <span data-i18n="admin_panel">Admin Panel</span>
+            </li>
+        </ul>
+
+        <ul class="nav-links" id="cloudNavLinks" style="display:none;">
+            <li class="nav-item active" data-cloud-view="files" onclick="CloudApp.showView('files')">
+                <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+                <span>Cloud Files</span>
+            </li>
+            <li class="nav-item" data-cloud-view="quota" onclick="CloudApp.showView('quota')">
+                <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <span>Quota Tracker</span>
+            </li>
+            <li class="nav-item" data-cloud-view="settings" onclick="CloudApp.showView('settings')">
+                <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span>Cloud Settings</span>
+            </li>
+            <li class="nav-item" data-cloud-view="api" onclick="CloudApp.showView('api')">
+                <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                </svg>
+                <span>API Keys</span>
             </li>
         </ul>
 
@@ -201,18 +242,30 @@
                 </button>
 
 
-                <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+                <button class="upload-btn" id="uploadBtn" onclick="handleUploadClick()" title="Dosya yükle (Shift: klasör)">
                     <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                     </svg>
                     <span data-i18n="upload">Upload</span>
                 </button>
+                <button class="icon-btn" id="cloudSyncBtn" style="display:none;" onclick="CloudApp.syncDrive()" title="Sync from Google Drive">
+                    <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                </button>
+                <button class="icon-btn" id="cloudNewFolderBtn" style="display:none;" onclick="CloudApp.createFolder()" title="New virtual folder">
+                    <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                    </svg>
+                </button>
             </div>
             <input type="file" id="fileInput" multiple style="display: none;">
+            <input type="file" id="folderInput" webkitdirectory directory multiple style="display: none;">
+            <input type="file" id="cloudFileInput" multiple style="display: none;">
         </div>
 
-        <div class="content-area">
+        <div class="content-area" id="localContentArea">
             <!-- Breadcrumb Navigation -->
             <nav class="breadcrumb-nav" id="breadcrumbNav">
                 <div class="breadcrumb-item home" onclick="navigateToFolder('/')">
@@ -230,6 +283,98 @@
             </div>
             <div class="file-grid" id="fileGrid">
                 <!-- Files injected here -->
+            </div>
+        </div>
+
+        <!-- Cloud content area -->
+        <div class="content-area" id="cloudContentArea" style="display:none;">
+            <div id="cloudViewFiles" class="cloud-view">
+                <nav class="breadcrumb-nav" id="cloudBreadcrumb">
+                    <div class="breadcrumb-item home" onclick="CloudApp.navigateFolder(null)">
+                        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
+                        </svg>
+                        <span style="margin-left:6px;">Cloud</span>
+                    </div>
+                </nav>
+                <div class="section-header">
+                    <h2 class="section-title">Cloud Files <span class="file-count" id="cloudFileCount">0</span></h2>
+                </div>
+                <div class="file-grid" id="cloudFileGrid"></div>
+            </div>
+
+            <div id="cloudViewQuota" class="cloud-view" style="display:none;">
+                <div class="section-header"><h2 class="section-title">Quota Tracker</h2></div>
+                <div id="cloudQuotaList" class="cloud-quota-list"></div>
+            </div>
+
+            <div id="cloudViewSettings" class="cloud-view" style="display:none;">
+                <div class="section-header"><h2 class="section-title">Cloud Settings</h2></div>
+                <div class="cloud-settings">
+                    <section class="cloud-card">
+                        <h3>Google OAuth Credentials</h3>
+                        <p class="cloud-hint">Google Cloud Console’dan OAuth Client ID/Secret alın. Redirect URI: <code id="cloudRedirectHint"></code></p>
+                        <div class="form-group"><label>Client ID</label><input type="text" id="googleClientId" class="form-input" placeholder="xxxx.apps.googleusercontent.com"></div>
+                        <div class="form-group"><label>Client Secret</label><input type="password" id="googleClientSecret" class="form-input" placeholder="GOCSPX-..."></div>
+                        <div class="form-group"><label>Redirect URI</label><input type="text" id="googleRedirectUri" class="form-input"></div>
+                        <button class="btn-primary" onclick="CloudApp.saveGoogleConfig()">Save Google Config</button>
+                        <p id="googleConfigStatus" class="cloud-status"></p>
+                    </section>
+
+                    <section class="cloud-card">
+                        <h3>Connected Accounts</h3>
+                        <div class="cloud-actions-row">
+                            <button class="btn-primary" onclick="CloudApp.connectGoogle()">Connect Google Drive</button>
+                            <button class="btn-secondary" onclick="CloudApp.showS3Form()">Add S3 Storage</button>
+                        </div>
+                        <div id="cloudAccountsList" class="cloud-accounts-list"></div>
+                        <div id="s3ConnectForm" class="s3-form" style="display:none;">
+                            <h4>S3-Compatible Storage</h4>
+                            <div class="form-group"><label>Name</label><input id="s3Name" class="form-input" placeholder="My MinIO / R2"></div>
+                            <div class="form-group"><label>Bucket</label><input id="s3Bucket" class="form-input"></div>
+                            <div class="form-group"><label>Region</label><input id="s3Region" class="form-input" placeholder="auto"></div>
+                            <div class="form-group"><label>Endpoint (optional)</label><input id="s3Endpoint" class="form-input" placeholder="https://..."></div>
+                            <div class="form-group"><label>Access Key</label><input id="s3AccessKey" class="form-input"></div>
+                            <div class="form-group"><label>Secret Key</label><input id="s3SecretKey" class="form-input" type="password"></div>
+                            <div class="form-group"><label>Prefix</label><input id="s3Prefix" class="form-input" value="blackdrop"></div>
+                            <div class="form-group"><label>Quota Bytes (optional)</label><input id="s3Quota" class="form-input" type="number" placeholder="e.g. 107374182400"></div>
+                            <label class="cloud-check"><input type="checkbox" id="s3ForcePath"> Force path style</label>
+                            <div class="cloud-actions-row">
+                                <button class="btn-primary" onclick="CloudApp.connectS3()">Connect S3</button>
+                                <button class="btn-secondary" onclick="CloudApp.hideS3Form()">Cancel</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="cloud-card">
+                        <h3>Upload Routing</h3>
+                        <p class="cloud-hint">Yeni upload’lar hangi hesaba gidecek?</p>
+                        <div class="form-group">
+                            <label>Mode</label>
+                            <select id="routingMode" class="form-input">
+                                <option value="most_available">Most available space</option>
+                                <option value="round_robin">Round robin</option>
+                                <option value="priority">Priority order</option>
+                            </select>
+                        </div>
+                        <button class="btn-primary" onclick="CloudApp.saveRouting()">Save Routing</button>
+                    </section>
+                </div>
+            </div>
+
+            <div id="cloudViewApi" class="cloud-view" style="display:none;">
+                <div class="section-header"><h2 class="section-title">API Keys</h2></div>
+                <div class="cloud-settings">
+                    <section class="cloud-card">
+                        <h3>External Upload API</h3>
+                        <p class="cloud-hint">POST <code>/api/v1/uploads</code> with Bearer API key. Multipart fields: sizeBytes, fileName, mimeType, then file.</p>
+                        <div class="form-group"><label>Key name</label><input id="apiKeyName" class="form-input" placeholder="CI upload key"></div>
+                        <button class="btn-primary" onclick="CloudApp.createApiKey()">Create API Key</button>
+                        <div id="apiKeySecretOnce" class="api-secret-box" style="display:none;"></div>
+                        <div id="apiKeysList" class="cloud-accounts-list"></div>
+                        <pre class="cloud-code" id="apiDocsCurl"></pre>
+                    </section>
+                </div>
             </div>
         </div>
 
@@ -1066,7 +1211,17 @@
         </div>
     </div>
 
+    <!-- Upload progress panel (bottom-right) -->
+    <div id="uploadProgressPanel" class="upload-progress-panel" style="display:none;">
+        <div class="upp-header">
+            <span>Uploads</span>
+            <button type="button" class="upp-close" onclick="UploadProgress.hide()" aria-label="Close">&times;</button>
+        </div>
+        <div class="upp-list" id="uploadProgressList"></div>
+    </div>
+
     <script src="script.js"></script>
+    <script src="cloud.js"></script>
 </body>
 
 </html>

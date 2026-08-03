@@ -21,6 +21,7 @@ let allTags = {};
 const fileGrid = document.getElementById('fileGrid');
 const searchInput = document.getElementById('searchInput');
 const fileInput = document.getElementById('fileInput');
+const folderInput = document.getElementById('folderInput');
 const dropOverlay = document.getElementById('dropOverlay');
 const contextMenu = document.getElementById('contextMenu');
 const gridContextMenu = document.getElementById('gridContextMenu');
@@ -219,10 +220,22 @@ function updateStorageInfo() {
 // SOCKET.IO EVENTS
 // ============================================================================
 socket.on('file:uploaded', (data) => {
-    const uploadPath = data.parentPath === '/' ? '/' : '/' + data.parentPath;
-    if (uploadPath === currentPath || (uploadPath === '/' && currentPath === '/')) {
+    const parent = (!data.parentPath || data.parentPath === '/')
+        ? '/'
+        : '/' + String(data.parentPath).replace(/^\/+/, '');
+
+    if (parent === currentPath) {
         allFiles.unshift(data.file);
         applyFilterAndRender();
+    } else {
+        // Uploaded into a nested path (e.g. folder drag-drop) — refresh if it's under current view
+        const prefix = currentPath === '/' ? '/' : currentPath + '/';
+        if (parent.startsWith(prefix) || (currentPath === '/' && parent !== '/')) {
+            // Only refresh once per batch: debounce lightly via flag on uploadQueue finish is better,
+            // but a simple refresh keeps the folder tree visible.
+            clearTimeout(window._uploadRefreshTimer);
+            window._uploadRefreshTimer = setTimeout(() => fetchContents(), 300);
+        }
     }
     showToast(`Dosya yüklendi: ${data.file.name}`, 'success');
     updateStorageInfo();
@@ -605,6 +618,10 @@ function renderGrid(files) {
         card.addEventListener('click', (e) => {
             if (e.target.closest('.favorite-btn')) return;
 
+            if (!file.isFolder) {
+                prepareDragOutFile(file.name, file.size).catch(() => {});
+            }
+
             if (e.ctrlKey || e.metaKey) {
                 if (selectedFiles.has(file.name)) {
                     selectedFiles.delete(file.name);
@@ -623,6 +640,11 @@ function renderGrid(files) {
         });
 
         // Drag & Drop
+        card.addEventListener('pointerdown', (e) => {
+            if (e.button === 0 && !file.isFolder) {
+                prepareDragOutFile(file.name, file.size);
+            }
+        });
         card.addEventListener('dragstart', handleDragStart);
         card.addEventListener('dragend', handleDragEnd);
         if (file.isFolder) {
@@ -757,6 +779,20 @@ fileInput?.addEventListener('change', (e) => {
     e.target.value = '';  // Reset so same files can be selected again
 });
 
+folderInput?.addEventListener('change', (e) => {
+    handleFiles(e.target.files);
+    e.target.value = '';
+});
+
+// Shift+click upload button → pick a folder (preserves structure)
+document.querySelector('.upload-btn')?.addEventListener('click', (e) => {
+    if (e.shiftKey) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        folderInput?.click();
+    }
+}, true);
+
 // Close/hide upload status bar
 document.getElementById('uploadMinimizeBtn')?.addEventListener('click', () => {
     const uploadStatus = document.getElementById('uploadStatus');
@@ -764,11 +800,30 @@ document.getElementById('uploadMinimizeBtn')?.addEventListener('click', () => {
 });
 
 let dragCounter = 0;
+const BLACKDROP_MIME = 'application/x-blackdrop-file';
+
+function dataTransferTypes(dt) {
+    return dt?.types ? [...dt.types] : [];
+}
+
+function isInternalBlackdropDrag(dt) {
+    return dataTransferTypes(dt).includes(BLACKDROP_MIME);
+}
+
+function hasExternalFiles(dt) {
+    return dataTransferTypes(dt).includes('Files') && !isInternalBlackdropDrag(dt);
+}
+
+function getUploadParentPath(overridePath = null) {
+    const base = overridePath !== null && overridePath !== undefined
+        ? overridePath
+        : currentPath;
+    if (!base || base === '/') return '';
+    return String(base).replace(/^\/+/, '');
+}
 
 document.addEventListener('dragenter', (e) => {
-    const types = e.dataTransfer?.types || [];
-    const isExternalFile = types.includes('Files') && !types.includes('text/plain');
-    if (isExternalFile) {
+    if (hasExternalFiles(e.dataTransfer)) {
         e.preventDefault();
         dragCounter++;
         dropOverlay?.classList.add('active');
@@ -787,32 +842,57 @@ document.addEventListener('drop', (e) => {
     dragCounter = 0;
     dropOverlay?.classList.remove('active');
 
-    const isInternalDrag = e.dataTransfer?.getData('text/plain');
-    if (!isInternalDrag && e.dataTransfer?.files?.length) {
+    // External OS files (Finder/Explorer). Do NOT treat text/plain as internal —
+    // browsers often set text/plain to the filename when dragging real files.
+    if (hasExternalFiles(e.dataTransfer) && e.dataTransfer.files?.length) {
         handleFiles(e.dataTransfer.files);
     }
 });
 
-document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('dragover', (e) => {
+    if (hasExternalFiles(e.dataTransfer) || isInternalBlackdropDrag(e.dataTransfer)) {
+        e.preventDefault();
+    }
+});
 
-function handleFiles(files) {
+function handleFiles(files, targetPath = null) {
     if (!files?.length) return;
-    [...files].forEach(file => uploadQueue.add(file));
+    const baseParent = getUploadParentPath(targetPath);
+
+    [...files].forEach(file => {
+        if (!file?.name) return;
+
+        let parentPath = baseParent;
+        if (file.webkitRelativePath) {
+            const parts = file.webkitRelativePath.split('/').filter(Boolean);
+            parts.pop(); // remove filename
+            const relDir = parts.join('/');
+            if (relDir) {
+                parentPath = parentPath ? `${parentPath}/${relDir}` : relDir;
+            }
+        }
+
+        uploadQueue.add(file, parentPath);
+    });
 }
 
 // ============================================================================
 // UPLOAD QUEUE SYSTEM
 // ============================================================================
 const uploadQueue = {
-    queue: [],          // Files waiting to be uploaded
+    queue: [],          // { file, parentPath } waiting to be uploaded
     active: null,       // Currently uploading file info
     completed: 0,       // Count of completed uploads in current batch
     failed: 0,          // Count of failed uploads
     totalInBatch: 0,    // Total files in current batch
     xhr: null,          // Current XMLHttpRequest
+    directUrls: [],     // Direct download URLs collected during current batch
 
-    add(file) {
-        this.queue.push(file);
+    add(file, parentPath = null) {
+        const resolvedParent = parentPath !== null && parentPath !== undefined
+            ? String(parentPath).replace(/^\/+/, '')
+            : getUploadParentPath();
+        this.queue.push({ file, parentPath: resolvedParent });
         this.totalInBatch++;
         this.updateUI();
         if (!this.active) {
@@ -827,7 +907,9 @@ const uploadQueue = {
             return;
         }
 
-        const file = this.queue.shift();
+        const item = this.queue.shift();
+        const file = item.file;
+        const parentPath = item.parentPath || '';
         this.active = { name: file.name, size: file.size, progress: 0 };
         this.updateUI();
 
@@ -836,7 +918,7 @@ const uploadQueue = {
 
         const xhr = new XMLHttpRequest();
         this.xhr = xhr;
-        const parentPathQuery = currentPath === '/' ? '' : `?parentPath=${encodeURIComponent(currentPath)}`;
+        const parentPathQuery = parentPath ? `?parentPath=${encodeURIComponent(parentPath)}` : '';
         xhr.open('POST', `/upload${parentPathQuery}`, true);
 
         if (authToken) {
@@ -853,6 +935,17 @@ const uploadQueue = {
         xhr.onload = () => {
             if (xhr.status === 200) {
                 this.completed++;
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    if (data && (data.directUrl || data.directUrlHttp || data.directUrlHttps)) {
+                        this.directUrls.push({
+                            name: file.name,
+                            url: data.directUrl,
+                            http: data.directUrlHttp,
+                            https: data.directUrlHttps
+                        });
+                    }
+                } catch (e) { /* ignore */ }
             } else {
                 this.failed++;
                 showToast(`Yukleme basarisiz: ${file.name}`, 'error');
@@ -887,6 +980,46 @@ const uploadQueue = {
         const queueList = document.getElementById('uploadQueueList');
         if (queueList) queueList.style.display = 'none';
 
+        // Copy direct download links to clipboard
+        if (this.directUrls.length > 0) {
+            const formatOne = (d) => {
+                const lines = [];
+                if (d.http) lines.push(`HTTP:  ${d.http}`);
+                if (d.https) lines.push(`HTTPS: ${d.https}`);
+                if (lines.length === 0 && d.url) lines.push(d.url);
+                return lines.join('\n');
+            };
+            const text = this.directUrls.length === 1
+                ? formatOne(this.directUrls[0])
+                : this.directUrls.map(d => `${d.name}\n${formatOne(d)}`).join('\n\n');
+            const onCopied = () => {
+                const label = this.directUrls.length === 1
+                    ? 'HTTP/HTTPS indirme linkleri panoya kopyalandi'
+                    : `${this.directUrls.length} dosya icin HTTP/HTTPS linkleri panoya kopyalandi`;
+                showToast(label, 'success');
+            };
+            const fallback = () => {
+                try {
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    onCopied();
+                } catch (e) {
+                    showToast('Link kopyalanamadi: ' + text, 'error');
+                }
+            };
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(onCopied).catch(fallback);
+            } else {
+                fallback();
+            }
+        }
+
         setTimeout(() => {
             const uploadStatus = document.getElementById('uploadStatus');
             if (uploadStatus) uploadStatus.style.display = 'none';
@@ -902,6 +1035,7 @@ const uploadQueue = {
         this.failed = 0;
         this.totalInBatch = 0;
         this.xhr = null;
+        this.directUrls = [];
     },
 
     updateUI() {
@@ -953,7 +1087,8 @@ const uploadQueue = {
                 </div>`);
             }
             // Queued
-            this.queue.forEach(f => {
+            this.queue.forEach(item => {
+                const f = item.file || item;
                 items.push(`<div style="display:flex;align-items:center;gap:0.5rem;padding:0.2rem 0;font-size:0.8rem;color:var(--text-tertiary);">
                     <span>⏳</span> <span>${f.name}</span>
                     <span style="margin-left:auto;">${formatSize(f.size)}</span>
@@ -2423,14 +2558,119 @@ window.performAdvancedSearch = async () => {
 // ============================================================================
 // DRAG & DROP HANDLERS
 // ============================================================================
+const DRAG_OUT_MAX_BYTES = 200 * 1024 * 1024; // 200MB — beyond this, use Download instead
+const dragOutCache = new Map(); // key -> { file?: File, promise?: Promise<File>, error?: string }
+
+function dragCacheKey(name) {
+    const parent = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+    return `${parent}//${name}`;
+}
+
+function getFileDownloadUrl(filename, forHttpDrag = false) {
+    const parentPath = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+    const pathPart = `/api/download/${encodeURIComponent(filename)}?parentPath=${encodeURIComponent(parentPath)}`;
+    if (forHttpDrag) {
+        const hostname = window.location.hostname || 'localhost';
+        return `http://${hostname}:3001${pathPart}`;
+    }
+    return `${window.location.origin}${pathPart}`;
+}
+
+function getCachedDragFile(name) {
+    return dragOutCache.get(dragCacheKey(name))?.file || null;
+}
+
+/** Prefetch file bytes so drag-out can put a real File in DataTransfer (WhatsApp, Finder, etc.) */
+function prepareDragOutFile(name, size = 0) {
+    const key = dragCacheKey(name);
+    const existing = dragOutCache.get(key);
+    if (existing?.file) return Promise.resolve(existing.file);
+    if (existing?.promise) return existing.promise;
+
+    if (size > DRAG_OUT_MAX_BYTES) {
+        const err = new Error('too_large');
+        dragOutCache.set(key, { error: 'too_large' });
+        return Promise.reject(err);
+    }
+
+    const promise = (async () => {
+        const headers = {};
+        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+        const res = await fetch(getFileDownloadUrl(name, false), { headers });
+        if (!res.ok) throw new Error('fetch_failed');
+        const blob = await res.blob();
+        const file = new File([blob], name, {
+            type: blob.type || 'application/octet-stream',
+            lastModified: Date.now()
+        });
+        dragOutCache.set(key, { file });
+        // Keep cache small (memory)
+        while (dragOutCache.size > 8) {
+            const oldest = dragOutCache.keys().next().value;
+            if (oldest === key) break;
+            dragOutCache.delete(oldest);
+        }
+        return file;
+    })().catch((err) => {
+        dragOutCache.delete(key);
+        throw err;
+    });
+
+    dragOutCache.set(key, { promise });
+    return promise;
+}
+
 function handleDragStart(e) {
     const card = e.target.closest('.file-card');
     const name = card?.getAttribute('data-name');
-    if (name) {
+    const isFolder = card?.getAttribute('data-isfolder') === 'true';
+    if (!name) return;
+
+    // Strip browser-default text (card label) so targets like WhatsApp don't get a filename/link
+    try { e.dataTransfer.clearData(); } catch (_) { /* ignore */ }
+
+    // Internal move identifier
+    e.dataTransfer.setData(BLACKDROP_MIME, name);
+    e.dataTransfer.effectAllowed = isFolder ? 'move' : 'copyMove';
+    card.classList.add('dragging');
+
+    if (isFolder) {
         e.dataTransfer.setData('text/plain', name);
-        e.dataTransfer.effectAllowed = 'move';
-        card.classList.add('dragging');
+        return;
     }
+
+    const cached = getCachedDragFile(name);
+    if (cached) {
+        try {
+            // Real file — same as dragging a local file into WhatsApp / Finder / Discord
+            e.dataTransfer.items.add(cached);
+        } catch (_) { /* browser may reject */ }
+        return;
+    }
+
+    // Not in memory yet: allow in-app folder moves; prepare bytes for the next outward drag
+    const meta = allFiles.find(f => f.name === name);
+    const size = meta?.size || 0;
+    const cachedEntry = dragOutCache.get(dragCacheKey(name));
+
+    if (cachedEntry?.error === 'too_large') {
+        showToast('Dosya sürüklemek için çok büyük — Indir kullanin', 'error');
+        return;
+    }
+
+    if (!cachedEntry?.promise) {
+        showToast('Dosya hazirlaniyor — hazir olunca tekrar surukleyin', 'info');
+    }
+
+    prepareDragOutFile(name, size)
+        .then(() => showToast('Dosya hazir — simdi surukleyip birakin', 'success'))
+        .catch((err) => {
+            if (err?.message === 'too_large') {
+                showToast('Dosya suruklemek icin cok buyuk — Indir kullanin', 'error');
+            } else {
+                showToast('Dosya hazirlanamadi', 'error');
+            }
+        });
 }
 
 function handleDragEnd(e) {
@@ -2440,9 +2680,10 @@ function handleDragEnd(e) {
 
 function handleDragOver(e) {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.stopPropagation();
     const card = e.target.closest('.file-card');
     if (card?.getAttribute('data-isfolder') === 'true') {
+        e.dataTransfer.dropEffect = hasExternalFiles(e.dataTransfer) ? 'copy' : 'move';
         card.classList.add('drop-target');
     }
     return false;
@@ -2459,20 +2700,27 @@ function handleDrop(e) {
 
     const destCard = e.target.closest('.file-card');
     destCard?.classList.remove('drop-target');
-
-    const sourceName = e.dataTransfer.getData('text/plain');
-    if (!sourceName || !destCard) return;
+    if (!destCard || destCard.getAttribute('data-isfolder') !== 'true') return;
 
     const destName = destCard.getAttribute('data-name');
-
     document.querySelectorAll('.file-card').forEach(c => c.classList.remove('dragging'));
 
-    if (sourceName === destName) return;
-    if (destCard.getAttribute('data-isfolder') !== 'true') return;
+    // Drop external files onto a folder → upload into that folder
+    if (hasExternalFiles(e.dataTransfer) && e.dataTransfer.files?.length) {
+        const targetPath = currentPath === '/' ? `/${destName}` : `${currentPath}/${destName}`;
+        handleFiles(e.dataTransfer.files, targetPath);
+        return false;
+    }
 
-    const parent = currentPath === '/' ? '' : currentPath;
-    const sourcePath = parent + '/' + sourceName;
-    const destinationPath = parent + '/' + destName;
+    // Internal move
+    const sourceName = e.dataTransfer.getData(BLACKDROP_MIME) || e.dataTransfer.getData('text/plain');
+    if (!sourceName || sourceName === destName) return false;
+    // Ignore if text/plain accidentally held a URL
+    if (/^https?:\/\//i.test(sourceName)) return false;
+
+    const parent = currentPath === '/' ? '' : currentPath.replace(/^\//, '');
+    const sourcePath = parent ? `${parent}/${sourceName}` : sourceName;
+    const destinationPath = parent ? `${parent}/${destName}` : destName;
 
     fetch('/move', {
         method: 'POST',
